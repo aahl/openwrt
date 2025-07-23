@@ -40,3 +40,8 @@ PROJECT_MIRRORS_FILE="$BUILD_DIR/scripts/projectsmirrors.json"
 if [ -f "$PROJECT_MIRRORS_FILE" ]; then
     sed -i '/.cn\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
 fi
+
+CN_DEFAULT_SETTINGS_FILE="$BUILD_DIR/package/emortal/default-settings/files/99-default-settings-chinese"
+if [ -f "$CN_DEFAULT_SETTINGS_FILE" ]; then
+    sed -i 's/mirrors.vsean.net/mirror.nju.edu.cn/g' "$CN_DEFAULT_SETTINGS_FILE"
+fi
