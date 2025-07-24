@@ -211,6 +211,9 @@ fix_default_set() {
             \cp -f "$BASE_PATH/patches/tempinfo" "$BUILD_DIR/package/emortal/autocore/files/tempinfo"
         fi
     fi
+
+    # fix for apk https://github.com/xiaorouji/openwrt-passwall/issues/3496#issuecomment-2477032542
+    curl -s https://raw.githubusercontent.com/sbwml/r4s_build_script/4a9fafefd67172e074fa62cbe3570c4e197376b3/openwrt/patch/apk-tools/9999-hack-for-linux-pre-releases.patch > "$BASE_PATH/package/system/apk/patches/9999-hack-for-linux-pre-releases.patch"
 }
 
 fix_miniupnpd() {
