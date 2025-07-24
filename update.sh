@@ -213,7 +213,14 @@ fix_default_set() {
     fi
 
     # fix for apk https://github.com/xiaorouji/openwrt-passwall/issues/3496#issuecomment-2477032542
-    curl -s https://raw.githubusercontent.com/sbwml/r4s_build_script/4a9fafefd67172e074fa62cbe3570c4e197376b3/openwrt/patch/apk-tools/9999-hack-for-linux-pre-releases.patch > "$BASE_PATH/package/system/apk/patches/9999-hack-for-linux-pre-releases.patch"
+    APK_PATCH_CURL="https://raw.githubusercontent.com/sbwml/r4s_build_script/4a9fafefd67172e074fa62cbe3570c4e197376b3/openwrt/patch/apk-tools/9999-hack-for-linux-pre-releases.patch"
+    APK_PATCH_FILE="package/system/apk/patches/9999-hack-for-linux-pre-releases.patch"
+    if [ -d "$(dirname $BASE_PATH/$APK_PATCH_FILE)" ]; then
+        curl -s $APK_PATCH_CURL > $BASE_PATH/$APK_PATCH_FILE
+    fi
+    if [ -d "$(dirname $BASE_PATH/action_build/$APK_PATCH_FILE)" ]; then
+        curl -s $APK_PATCH_CURL > $BASE_PATH/action_build/$APK_PATCH_FILE
+    fi
 }
 
 fix_miniupnpd() {
