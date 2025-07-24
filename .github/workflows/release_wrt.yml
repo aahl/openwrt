@@ -31,6 +31,10 @@ on:
         options:
           - ubuntu-20.04
           - ubuntu-22.04
+      cache-key:
+        description: Cache Key
+        required: false
+        default: ''
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,9 +88,9 @@ jobs:
           path: |
             ./action_build/.ccache
             ./action_build/staging_dir
-          key: ${{ inputs.runs-on }}-${{ hashFiles('**/repo_flag') }}-${{ env.BUILD_DATE }}
+          key: ${{ inputs.runs-on }}-${{ hashFiles('**/repo_flag') }}-${{ inputs.cache-key }}-${{ env.BUILD_DATE }}
           restore-keys: |
-            ${{ inputs.runs-on }}-${{ hashFiles('**/repo_flag') }}-
+            ${{ inputs.runs-on }}-${{ hashFiles('**/repo_flag') }}-${{ inputs.cache-key }}
 
       - name: Refresh the cache
         run: |
