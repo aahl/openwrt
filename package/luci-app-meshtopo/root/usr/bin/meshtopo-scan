@@ -1,0 +1,159 @@
+#!/bin/sh
+# meshtopo-scan - 采集 mesh 组网拓扑数据,输出 JSON(供 luci-app-meshtopo 页面轮询)
+#
+# 数据来源:
+#   自身信息      uci system / network.lan
+#   外网状态      ubus network.interface.wan
+#   本机直连终端  ubus hostapd.* get_clients
+#   mesh 链路     iw dev <meshif> station dump (信号/流量计数)
+#   各节点终端数  ubus usteer remote_info (远端节点按 "<对端IP>#..." 命名)
+#   节点清单      uci meshtopo (ip/label/可选 peer_mac 固定)
+
+. /lib/functions.sh
+
+MAP=/tmp/meshtopo.map
+[ -s "$MAP" ] || : > "$MAP"
+
+json_escape() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+# ---------- 自身 ----------
+SELF_NAME=$(uci -q get system.@system[0].hostname || echo OpenWrt)
+SELF_IP=$(uci -q get network.lan.ipaddr || echo "192.168.68.1")
+SELF_ROLE=node
+case "$SELF_IP" in *.1) SELF_ROLE=main ;; esac
+
+# ---------- 外网 ----------
+NET_UP=false
+[ "$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)" = "true" ] && NET_UP=true
+
+# ---------- 本机直连终端数 ----------
+LOCAL_CLIENTS=0
+for obj in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
+	n=$(ubus call "$obj" get_clients 2>/dev/null | grep -o '"signal"' | wc -l)
+	LOCAL_CLIENTS=$((LOCAL_CLIENTS + ${n:-0}))
+done
+
+# ---------- mesh 接口与 peer ----------
+MESH_IFS=$(iw dev 2>/dev/null | awk '
+	/^Interface /{ifname=$2}
+	/^[ \t]*type mesh point/{if (ifname != "") print ifname}
+')
+
+dump_peers() { # $1: 输出文件; 每行: mac rx_bytes signal
+	: > "$1"
+	for mi in $MESH_IFS; do
+		iw dev "$mi" station dump 2>/dev/null | awk -v out="$1" '
+			/^Station /{mac=$2; rx=""; sig="0"}
+			/^[ \t]*rx bytes:/{rx=$3}
+			/^[ \t]*signal:/{sig=$2}
+			/^$/{
+				if (mac != "") { print mac, rx + 0, sig >> out; mac = "" }
+			}
+			END{ if (mac != "") print mac, rx + 0, sig >> out }
+		'
+	done
+}
+
+PEERS_NOW=$(mktemp)
+dump_peers "$PEERS_NOW"
+
+peer_field() { # $1=mac $2=字段序号
+	awk -v m="$1" -v f="$2" '$1==m{print $f; exit}' "$PEERS_NOW"
+}
+
+# ---------- usteer: 各节点在线终端数 ----------
+usteer_counts() {
+	ubus call usteer remote_info 2>/dev/null | awk '
+		{
+			if (match($0, /"[0-9][0-9.]*#[^"]*":/)) {
+				t = substr($0, RSTART + 1, RLENGTH - 2)
+				sub(/#.*/, "", t)
+				cur = t
+				next
+			}
+			if (cur != "" && match($0, /"n_assoc": *[0-9]+/)) {
+				n = substr($0, RSTART, RLENGTH)
+				gsub(/[^0-9]/, "", n)
+				cnt[cur] += n
+			}
+		}
+		END { for (ip in cnt) print ip, cnt[ip] }
+	'
+}
+USTEER_CACHE=$(mktemp)
+usteer_counts > "$USTEER_CACHE"
+
+node_clients() { awk -v ip="$1" '$1==ip{print $2; exit}' "$USTEER_CACHE"; }
+
+# ---------- peer 与节点匹配: uci 固定 > 粘性缓存 > 脉冲探测 ----------
+map_lookup() { awk -v ip="$1" '$1==ip{print $2; exit}' "$MAP"; }
+
+map_store() { # $1=ip $2=mac
+	grep -v "^$1 " "$MAP" > "$MAP.tmp" 2>/dev/null
+	mv -f "$MAP.tmp" "$MAP"
+	echo "$1 $2" >> "$MAP"
+}
+
+probe_peer() { # $1=节点IP; 用 ping 脉冲比对各 peer 的 rx 增量,输出 mac 或空
+	local f1 f2 deltas first second first_d second_d first_mac
+	f1=$(mktemp); f2=$(mktemp)
+	dump_peers "$f1"
+	ping -c 2 -i 0.1 -W 1 "$1" >/dev/null 2>&1
+	dump_peers "$f2"
+	deltas=$(awk '
+		NR==FNR { rx[$1] = $2 + 0; next }
+		{ d = ($2 + 0) - (rx[$1] + 0); if (d > 150) print d, $1 }
+	' "$f1" "$f2" | sort -rn)
+	rm -f "$f1" "$f2"
+	first=$(echo "$deltas" | sed -n 1p)
+	second=$(echo "$deltas" | sed -n 2p)
+	[ -n "$first" ] || return 0
+	first_d=${first%% *}
+	first_mac=${first#* }
+	second_d=${second%% *}
+	second_d=${second_d:-0}
+	# 第一名需显著领先(2 倍以上),避免背景流量误判
+	[ -n "$first_mac" ] && [ "$first_d" -gt $((second_d * 2)) ] && printf '%s' "$first_mac"
+}
+
+# ---------- 组装节点数组 ----------
+NODES_JSON=""
+
+node_cb() {
+	local cfg=$1 ip label pinned mac link signal nclients
+	config_get ip "$cfg" ip ""
+	config_get label "$cfg" label ""
+	config_get pinned "$cfg" peer_mac ""
+	[ -z "$ip" ] && return 0
+	[ "$ip" = "$SELF_IP" ] && return 0
+
+	mac="$pinned"
+	[ -z "$mac" ] && mac=$(map_lookup "$ip")
+	[ -z "$mac" ] && mac=$(probe_peer "$ip")
+
+	link=down
+	signal=""
+	if [ -n "$mac" ] && [ "$(peer_field "$mac" 1)" = "$mac" ]; then
+		link=mesh
+		signal=$(peer_field "$mac" 3)
+		map_store "$ip" "$mac"
+	elif ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
+		link=wire
+	fi
+
+	nclients=$(node_clients "$ip")
+	[ -z "$nclients" ] && nclients=null
+
+	[ -n "$NODES_JSON" ] && NODES_JSON="$NODES_JSON,"
+	NODES_JSON="$NODES_JSON{\"ip\":\"$ip\",\"label\":\"$(json_escape "$label")\",\"link\":\"$link\",\"signal\":\"$(json_escape "$signal")\",\"clients\":$nclients}"
+}
+
+config_load meshtopo
+config_foreach node_cb node
+
+rm -f "$PEERS_NOW" "$USTEER_CACHE"
+
+printf '{"internet":%s,"self":{"name":"%s","ip":"%s","role":"%s","clients":%d},"nodes":[%s]}\n' \
+	"$NET_UP" "$(json_escape "$SELF_NAME")" "$SELF_IP" "$SELF_ROLE" "$LOCAL_CLIENTS" "$NODES_JSON"

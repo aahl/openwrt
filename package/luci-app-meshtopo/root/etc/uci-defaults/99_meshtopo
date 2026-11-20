@@ -1,0 +1,9 @@
+#!/bin/sh
+# 拓扑节点终端数徽标与漫游引导均依赖 usteer,启用并立即启动
+[ -x /etc/init.d/usteer ] && /etc/init.d/usteer enable >/dev/null 2>&1
+[ -x /etc/init.d/usteer ] && /etc/init.d/usteer start >/dev/null 2>&1
+
+# 清除 LuCI 菜单缓存(opkg 在线安装场景)
+rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* /tmp/luci-modulecache /tmp/luci-modulecache.* >/dev/null 2>&1
+
+exit 0

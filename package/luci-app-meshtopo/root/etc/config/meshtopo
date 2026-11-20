@@ -1,0 +1,13 @@
+# Mesh 拓扑页面节点清单(label 为卡片显示名)
+# peer_mac 可选:手动固定该节点的 mesh peer 射频 MAC,留空则自动脉冲识别
+
+config meshtopo 'config'
+	option refresh '5'
+
+config node
+	option ip '192.168.68.2'
+	option label '亚瑟 AX1800 Pro'
+
+config node
+	option ip '192.168.68.3'
+	option label 'Link NN6000 v2'

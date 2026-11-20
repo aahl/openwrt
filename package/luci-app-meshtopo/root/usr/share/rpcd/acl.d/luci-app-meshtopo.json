@@ -1,0 +1,17 @@
+{
+	"luci-app-meshtopo": {
+		"description": "Grant access to mesh topology view",
+		"read": {
+			"uci": [ "meshtopo" ]
+		},
+		"write": {
+			"file": {
+				"/usr/bin/meshtopo-scan": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			},
+			"uci": [ "meshtopo" ]
+		}
+	}
+}

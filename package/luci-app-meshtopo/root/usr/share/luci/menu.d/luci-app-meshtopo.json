@@ -1,0 +1,15 @@
+{
+	"admin/network/meshtopo": {
+		"title": "Mesh 拓扑",
+		"order": 22,
+		"action": {
+			"type": "view",
+			"path": "meshtopo"
+		},
+		"depends": {
+			"uci": {
+				"meshtopo": true
+			}
+		}
+	}
+}
