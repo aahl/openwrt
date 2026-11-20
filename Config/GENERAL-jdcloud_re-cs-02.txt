@@ -123,8 +123,6 @@ CONFIG_PACKAGE_bash=y
 CONFIG_PACKAGE_bind-dig=y
 # CONFIG_PACKAGE_bind-host is not set
 CONFIG_PACKAGE_bind-nslookup=y
-CONFIG_PACKAGE_kmod-nf-deaf=y
-CONFIG_PACKAGE_luci-app-nf-deaf=y
 # 漫游引导(有线回程 Mesh 的核心) + 拓扑页面
 CONFIG_PACKAGE_usteer=y
 CONFIG_PACKAGE_luci-app-usteer=y
