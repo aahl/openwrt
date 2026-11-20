@@ -3,6 +3,10 @@ name: QCA-LiBwrt
 
 #CI计划
 on:
+  #自动编译：push 到 main 分支后立即编译
+  push:
+    branches:
+      - main
   #自动编译：当Auto-Clean运行完成后
   workflow_run:
     workflows: ["Auto-Clean"]
