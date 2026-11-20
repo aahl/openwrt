@@ -41,6 +41,9 @@ MESH_IFS=$(iw dev 2>/dev/null | awk '
 	/^[ \t]*type mesh point/{if (ifname != "") print ifname}
 ')
 
+# 无 mesh 接口(纯有线回程)时清理陈旧映射
+[ -z "$MESH_IFS" ] && : > "$MAP"
+
 dump_peers() { # $1: 输出文件; 每行: mac rx_bytes signal
 	: > "$1"
 	for mi in $MESH_IFS; do
@@ -131,7 +134,7 @@ node_cb() {
 
 	mac="$pinned"
 	[ -z "$mac" ] && mac=$(map_lookup "$ip")
-	[ -z "$mac" ] && mac=$(probe_peer "$ip")
+	[ -z "$mac" ] && [ -n "$MESH_IFS" ] && mac=$(probe_peer "$ip")
 
 	link=down
 	signal=""

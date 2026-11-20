@@ -33,23 +33,19 @@ elif [ -f "$WIFI_UC" ]; then
 	#修改WIFI加密
 	sed -i "s/encryption='.*'/encryption='psk2+ccmp'/g" $WIFI_UC
 
-	#5G 射频默认追加 802.11s mesh 接口（三台 Mesh ID 一致、固定 149 信道，开箱自动组网）
-	cat > /tmp/mesh_snippet.uc <<'EOF'
-		if (band_name == '5g') {
-			let sm = "wireless.mesh_" + name;
-			print(`set ${sm}=wifi-iface
-set ${sm}.device='${name}'
-set ${sm}.network='lan'
-set ${sm}.mode='mesh'
-set ${sm}.mesh_id='G1Mesh'
-set ${sm}.disabled='0'
-set ${s}.channel='149'
+	#有线回程 Mesh:三台同 SSID,默认注入 802.11r/k/v 支撑快速漫游
+	#(FT-PSK 无需 RADIUS,usteer 依赖 802.11k/v 做终端引导)
+	cat > /tmp/ft_snippet.uc <<'EOF'
+		print(`set ${si}.ieee80211r='1'
+set ${si}.mobility_domain='1'
+set ${si}.ft_psk_generate_local='1'
+set ${si}.ieee80211k='1'
+set ${si}.bss_transition='1'
 
 `);
-		}
 EOF
-	sed -i "/config\[name\] = {};/r /tmp/mesh_snippet.uc" $WIFI_UC
-	rm -f /tmp/mesh_snippet.uc
+	sed -i "/config\[name\] = {};/r /tmp/ft_snippet.uc" $WIFI_UC
+	rm -f /tmp/ft_snippet.uc
 fi
 
 CFG_FILE="./package/base-files/files/bin/config_generate"
@@ -99,9 +95,9 @@ if [[ $WRT_TARGET == *"QUALCOMMAX"* ]]; then
 	#取消nss相关feed
 	echo "CONFIG_FEED_nss_packages=n" >> ./.config
 	echo "CONFIG_FEED_sqm_scripts_nss=n" >> ./.config
-	#设置NSS版本(11.4 为支持 802.11s mesh 卸载的固件线)
-	echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=y" >> ./.config
-	echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=n" >> ./.config
+	#设置NSS版本
+	echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=n" >> ./.config
+	echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> ./.config
 	#开启sqm-nss插件
 	echo "CONFIG_PACKAGE_luci-app-sqm=y" >> ./.config
 	echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
