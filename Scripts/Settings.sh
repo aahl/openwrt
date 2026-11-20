@@ -32,6 +32,20 @@ elif [ -f "$WIFI_UC" ]; then
 	sed -i "s/country='.*'/country='AU'/g" $WIFI_UC
 	#修改WIFI加密
 	sed -i "s/encryption='.*'/encryption='psk2+ccmp'/g" $WIFI_UC
+
+	#有线回程 Mesh:三台同 SSID,默认注入 802.11r/k/v 支撑快速漫游
+	#(FT-PSK 无需 RADIUS,usteer 依赖 802.11k/v 做终端引导)
+	cat > /tmp/ft_snippet.uc <<'EOF'
+		print(`set ${si}.ieee80211r='1'
+set ${si}.mobility_domain='1'
+set ${si}.ft_psk_generate_local='1'
+set ${si}.ieee80211k='1'
+set ${si}.bss_transition='1'
+
+`);
+EOF
+	sed -i "/config\[name\] = {};/r /tmp/ft_snippet.uc" $WIFI_UC
+	rm -f /tmp/ft_snippet.uc
 fi
 
 CFG_FILE="./package/base-files/files/bin/config_generate"
