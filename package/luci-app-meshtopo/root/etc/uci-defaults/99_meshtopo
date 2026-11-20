@@ -4,9 +4,11 @@
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer enable >/dev/null 2>&1
 
 if [ -f /etc/config/usteer ]; then
+	# 噪声底约 -104dBm:SNR 30 ≈ -74dBm 强踢,SNR 40 ≈ -64dBm 开始扫描引导
 	uci -q set usteer.@usteer[0].roam_scan_snr='40'
 	uci -q set usteer.@usteer[0].signal_diff_threshold='5'
-	uci -q set usteer.@usteer[0].min_snr='15'
+	uci -q set usteer.@usteer[0].min_snr='30'
+	uci -q set usteer.@usteer[0].roam_scan_timeout='20000'
 	uci -q commit usteer
 fi
 
