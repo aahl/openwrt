@@ -6,7 +6,7 @@
   - 京东云 RE-CS-02（jdcloud_re-cs-02）
   - Link NN6000 v2（link_nn6000-v2）
   
-  超强精简，核心插件为luci-app-dae，各机型插件略有差异（京东云机型含samba4、tailscale），详见 `Config/GENERAL-<设备名>.txt`，内存占用仅65%。
+  超强精简，核心插件为luci-app-dae，各机型插件略有差异（京东云机型含samba4），详见 `Config/GENERAL-<设备名>.txt`，内存占用仅65%。
 
   固件集成增强版geoip.dat、geosite.dat,开箱即用，正确配置Dae不会报错
 
