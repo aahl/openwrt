@@ -78,6 +78,8 @@ if [ "$WRT_DEVICE" = "jdcloud_re-cs-02" ]; then
 mkdir -p /etc/nlbwmon
 uci -q set nlbwmon.@nlbwmon[0].database_directory='/etc/nlbwmon'
 uci -q commit nlbwmon
+[ -x /etc/init.d/nlbwmon ] && /etc/init.d/nlbwmon enable >/dev/null 2>&1
+[ -x /etc/init.d/nlbwmon ] && /etc/init.d/nlbwmon start >/dev/null 2>&1
 exit 0
 EOF
 fi
