@@ -1,7 +1,6 @@
 #jdcloud_re-cs-02 专用通用配置（按需自行增减插件）
 #防堆叠
 
-CONFIG_PACKAGE_luci-app-dae=y
 CONFIG_PACKAGE_luci-app-samba4=y
 # CONFIG_PACKAGE_luci-app-openlist2=y
 CONFIG_PACKAGE_luci-app-ramfree=y

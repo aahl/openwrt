@@ -1,9 +1,18 @@
 #!/bin/bash
 . $(dirname "$(realpath "$0")")/function.sh
+
+#按机型设定默认 LAN 地址（cs-02 主路由 .1，亚瑟/NN6000 为节点 .2/.3）
+case "$WRT_DEVICE" in
+	jdcloud_re-cs-02) LAN_IP="192.168.68.1" ;;
+	jdcloud_re-ss-01) LAN_IP="192.168.68.2" ;;
+	link_nn6000-v2) LAN_IP="192.168.68.3" ;;
+	*) LAN_IP="${WRT_IP:-192.168.68.1}" ;;
+esac
+
 #修改默认主题
 sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
 #修改immortalwrt.lan关联IP
-sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js")
+sed -i "s/192\.168\.[0-9]*\.[0-9]*/$LAN_IP/g" $(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js")
 #添加编译日期标识
 sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ DaeWRT-$WRT_DATE')/g" $(find ./feeds/luci/modules/luci-mod-status/ -type f -name "10_system.js")
 
@@ -23,13 +32,46 @@ elif [ -f "$WIFI_UC" ]; then
 	sed -i "s/country='.*'/country='AU'/g" $WIFI_UC
 	#修改WIFI加密
 	sed -i "s/encryption='.*'/encryption='psk2+ccmp'/g" $WIFI_UC
+
+	#5G 射频默认追加 802.11s mesh 接口（三台 Mesh ID 一致、固定 149 信道，开箱自动组网）
+	cat > /tmp/mesh_snippet.uc <<'EOF'
+		if (band_name == '5g') {
+			let sm = "wireless.mesh_" + name;
+			print(`set ${sm}=wifi-iface
+set ${sm}.device='${name}'
+set ${sm}.network='lan'
+set ${sm}.mode='mesh'
+set ${sm}.mesh_id='G1Mesh'
+set ${sm}.disabled='0'
+set ${s}.channel='149'
+
+`);
+		}
+EOF
+	sed -i "/config\[name\] = {};/r /tmp/mesh_snippet.uc" $WIFI_UC
+	rm -f /tmp/mesh_snippet.uc
 fi
 
 CFG_FILE="./package/base-files/files/bin/config_generate"
-#修改默认IP地址
-sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $CFG_FILE
+#修改默认IP地址（按机型）
+sed -i "s/192\.168\.[0-9]*\.[0-9]*/$LAN_IP/g" $CFG_FILE
 #修改默认主机名
 sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
+
+#节点机型(亚瑟/NN6000)默认烧入哑节点角色：关闭本机 DHCP，网关/DNS 指向主路由
+if [ "$WRT_DEVICE" = "jdcloud_re-ss-01" ] || [ "$WRT_DEVICE" = "link_nn6000-v2" ]; then
+	mkdir -p ./files/etc/uci-defaults
+	cat > ./files/etc/uci-defaults/99_node_role <<'EOF'
+#!/bin/sh
+# 哑节点角色：本机不提供 DHCP，网关/DNS 指向主路由 192.168.68.1
+uci -q set dhcp.lan.ignore='1'
+uci -q set network.lan.gateway='192.168.68.1'
+uci -q add_list network.lan.dns='192.168.68.1'
+uci -q commit dhcp
+uci -q commit network
+exit 0
+EOF
+fi
 
 vlmcsd_patches="./feeds/packages/net/vlmcsd/patches/"
 mkdir -p $vlmcsd_patches && cp -f ../patches/001-fix_compile_with_ccache.patch $vlmcsd_patches
