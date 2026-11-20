@@ -1,0 +1,17 @@
+{
+	"luci-app-nf-deaf": {
+		"description": "Grant access to nf_deaf traffic faking configuration",
+		"read": {
+			"uci": [ "nf_deaf" ]
+		},
+		"write": {
+			"file": {
+				"/etc/init.d/nf_deaf": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			},
+			"uci": [ "nf_deaf" ]
+		}
+	}
+}

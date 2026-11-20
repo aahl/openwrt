@@ -1,0 +1,202 @@
+#!/bin/sh /etc/rc.common
+# nf_deaf 流量伪装
+#
+# 通过 nftables 为符合条件的出站 TCP 报文打上 nf_deaf 魔术 mark(0xdeaXXXXX)，
+# 内核模块在 postrouting 钩子中按 mark 注入伪造的 HTTP 请求报文。
+#
+# mark 位定义（与内核模块保持一致）：
+#   bits 20-31: 魔术数 0xdea
+#   bits 13-15: 重复份数 repeat
+#   其余位保持为 0（不启用延迟/损坏/TTL 调整）
+
+USE_PROCD=1
+START=99
+STOP=01
+
+DEAF_BUF_FILE="/sys/kernel/debug/nf_deaf/buf"
+DEAF_TABLE="nf_deaf"
+DEAF_CHAIN="postrouting"
+
+deaf_mark_hex() {
+	local repeat
+
+	config_get repeat config repeat 0
+	case "$repeat" in ''|*[!0-9]*) repeat=0 ;; esac
+	[ "$repeat" -gt 7 ] && repeat=7
+
+	printf 'dea0%x000' $((repeat * 2))
+}
+
+deaf_mount_debugfs() {
+	mkdir -p /sys/kernel/debug >/dev/null 2>&1
+
+	if ! grep -q " /sys/kernel/debug " /proc/mounts; then
+		mount -t debugfs debugfs /sys/kernel/debug >/dev/null 2>&1
+	fi
+
+	[ -e "$DEAF_BUF_FILE" ]
+}
+
+deaf_write_buf() {
+	local domain
+
+	config_get domain config fake_domain "www.speedtest.cn"
+
+	# 直接重定向写入，避免命令替换吃掉末尾的 CRLF
+	printf 'GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\nConnection: keep-alive\r\n\r\n' \
+		"$domain" > "$DEAF_BUF_FILE" 2>/dev/null
+}
+
+deaf_flush_rules() {
+	nft delete table inet "$DEAF_TABLE" >/dev/null 2>&1
+	return 0
+}
+
+deaf_add_rules() {
+	local target_only target port family mark match
+
+	config_get target_only config target_only 1
+	config_get target config target_ip ""
+	config_get port config target_port ""
+	mark="0x$(deaf_mark_hex)"
+
+	deaf_flush_rules
+
+	# 未选择"仅针对指定目标"时忽略目标地址，对所有出站 TCP 生效
+	[ "$target_only" = "1" ] || target=""
+
+	if [ -z "$target" ] && [ "$target_only" = "1" ]; then
+		logger -t nf_deaf "已开启但未配置目标 IP，伪造规则未生效"
+		return 0
+	fi
+
+	nft add table inet "$DEAF_TABLE" >/dev/null 2>&1 || return 1
+	nft add chain inet "$DEAF_TABLE" "$DEAF_CHAIN" \
+		'{ type filter hook postrouting priority 150; policy accept; }' >/dev/null 2>&1 || return 1
+
+	match=""
+	case "$port" in ''|*[!0-9]*) ;; *) match="tcp dport $port" ;; esac
+
+	if [ -n "$target" ]; then
+		case "$target" in *:*) family="ip6" ;; *) family="ip" ;; esac
+		nft add rule inet "$DEAF_TABLE" "$DEAF_CHAIN" \
+			"$family daddr $target $match counter mark set $mark" >/dev/null 2>&1 || {
+			deaf_flush_rules
+			return 1
+		}
+	else
+		nft add rule inet "$DEAF_TABLE" "$DEAF_CHAIN" \
+			"meta l4proto tcp $match counter mark set $mark" >/dev/null 2>&1 || {
+			deaf_flush_rules
+			return 1
+		}
+	fi
+
+	return 0
+}
+
+start_service() {
+	local enabled domain
+
+	config_load nf_deaf
+	config_get enabled config enabled 0
+
+	if [ "$enabled" != "1" ]; then
+		deaf_flush_rules
+		return 0
+	fi
+
+	if [ ! -d /sys/module/nf_deaf ]; then
+		modprobe nf_deaf >/dev/null 2>&1
+	fi
+
+	if [ ! -d /sys/module/nf_deaf ]; then
+		logger -t nf_deaf "内核模块 nf_deaf 加载失败，请确认固件包含 kmod-nf-deaf"
+		deaf_flush_rules
+		return 1
+	fi
+
+	if deaf_mount_debugfs; then
+		if deaf_write_buf; then
+			config_get domain config fake_domain "www.speedtest.cn"
+			logger -t nf_deaf "伪造报文已写入内核（Host: $domain）"
+		else
+			logger -t nf_deaf "伪造报文写入失败"
+		fi
+	else
+		logger -t nf_deaf "未找到 debugfs 接口，将使用内核内置默认报文（需内核启用 CONFIG_DEBUG_FS）"
+	fi
+
+	if deaf_add_rules; then
+		logger -t nf_deaf "伪造规则已下发"
+	else
+		logger -t nf_deaf "伪造规则下发失败，请检查目标地址/端口配置"
+	fi
+
+	return 0
+}
+
+stop_service() {
+	deaf_flush_rules
+	rmmod nf_deaf >/dev/null 2>&1
+	return 0
+}
+
+reload_service() {
+	stop_service
+	start_service
+}
+
+service_triggers() {
+	procd_add_reload_trigger "nf_deaf"
+}
+
+status_service() {
+	local target_only target port cur packets
+
+	config_load nf_deaf
+
+	config_get target_only config target_only 1
+	config_get target config target_ip ""
+	config_get port config target_port ""
+	[ "$target_only" = "1" ] || target=""
+
+	if [ -d /sys/module/nf_deaf ]; then
+		echo "module=loaded"
+	else
+		echo "module=missing"
+	fi
+
+	if [ -n "$target" ]; then
+		echo "target=${target}${port:+:$port}"
+	elif [ "$target_only" = "1" ]; then
+		echo "target=未配置（规则未生效）"
+	elif [ -n "$port" ]; then
+		echo "target=所有出站 TCP 流量（端口 $port）"
+	else
+		echo "target=所有出站 TCP 流量"
+	fi
+
+	cur=""
+	if deaf_mount_debugfs && [ -r "$DEAF_BUF_FILE" ]; then
+		cur=$(tr '\r' '\n' < "$DEAF_BUF_FILE" | sed -n 's/^Host: //p' | head -n 1)
+	fi
+
+	if [ -n "$cur" ]; then
+		echo "domain=$cur"
+	else
+		echo "domain=未知（debugfs 不可用，内核使用内置默认报文）"
+	fi
+
+	if nft list table inet "$DEAF_TABLE" >/dev/null 2>&1; then
+		echo "running=1"
+		packets=$(nft list chain inet "$DEAF_TABLE" "$DEAF_CHAIN" 2>/dev/null |
+			sed -n 's/.*counter packets \([0-9][0-9]*\).*/\1/p' | head -n 1)
+		echo "packets=${packets:-0}"
+	else
+		echo "running=0"
+		echo "packets=0"
+	fi
+
+	return 0
+}

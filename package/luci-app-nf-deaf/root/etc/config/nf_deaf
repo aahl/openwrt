@@ -1,0 +1,7 @@
+config nf_deaf 'config'
+	option enabled '0'
+	option fake_domain 'www.speedtest.cn'
+	option target_only '1'
+	option target_ip ''
+	option target_port ''
+	option repeat '0'

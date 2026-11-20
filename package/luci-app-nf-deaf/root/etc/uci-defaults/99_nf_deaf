@@ -1,0 +1,8 @@
+#!/bin/sh
+# 首次启动时启用 nf_deaf 服务（脚本自身会根据 uci 开关决定是否下发规则）
+[ -x /etc/init.d/nf_deaf ] && /etc/init.d/nf_deaf enable >/dev/null 2>&1
+
+# 清除 LuCI 菜单缓存，使新页面立即生效（opkg 在线安装场景）
+rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* /tmp/luci-modulecache /tmp/luci-modulecache.* >/dev/null 2>&1
+
+exit 0
