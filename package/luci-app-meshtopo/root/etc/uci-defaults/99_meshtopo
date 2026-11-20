@@ -1,6 +1,15 @@
 #!/bin/sh
-# 拓扑节点终端数徽标与漫游引导均依赖 usteer,启用并立即启动
+# 拓扑徽标与漫游引导依赖 usteer:启用服务并写入触发阈值
+# (usteer 出厂所有 SNR 阈值为 0 = 漫游逻辑完全不启动,必须显式配置)
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer enable >/dev/null 2>&1
+
+if [ -f /etc/config/usteer ]; then
+	uci -q set usteer.@usteer[0].roam_scan_snr='40'
+	uci -q set usteer.@usteer[0].signal_diff_threshold='5'
+	uci -q set usteer.@usteer[0].min_snr='15'
+	uci -q commit usteer
+fi
+
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer start >/dev/null 2>&1
 
 # 清除 LuCI 菜单缓存(opkg 在线安装场景)
