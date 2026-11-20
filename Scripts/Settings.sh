@@ -69,6 +69,19 @@ exit 0
 EOF
 fi
 
+#主路由(cs-02):nlbwmon 统计数据库放持久路径,重启不丢数据
+if [ "$WRT_DEVICE" = "jdcloud_re-cs-02" ]; then
+	mkdir -p ./files/etc/uci-defaults
+	cat > ./files/etc/uci-defaults/99_main_extras <<'EOF'
+#!/bin/sh
+[ -f /etc/config/nlbwmon ] || exit 0
+mkdir -p /etc/nlbwmon
+uci -q set nlbwmon.@nlbwmon[0].database_directory='/etc/nlbwmon'
+uci -q commit nlbwmon
+exit 0
+EOF
+fi
+
 vlmcsd_patches="./feeds/packages/net/vlmcsd/patches/"
 mkdir -p $vlmcsd_patches && cp -f ../patches/001-fix_compile_with_ccache.patch $vlmcsd_patches
 
