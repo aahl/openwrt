@@ -37,7 +37,7 @@ elif [ -f "$WIFI_UC" ]; then
 	#(FT-PSK 无需 RADIUS,usteer 依赖 802.11k/v 做终端引导)
 	cat > /tmp/ft_snippet.uc <<'EOF'
 		print(`set ${si}.ieee80211r='1'
-set ${si}.mobility_domain='1'
+set ${si}.mobility_domain='0001'
 set ${si}.ft_psk_generate_local='1'
 set ${si}.ieee80211k='1'
 set ${si}.bss_transition='1'
