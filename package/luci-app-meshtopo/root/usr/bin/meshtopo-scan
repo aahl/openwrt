@@ -1,19 +1,26 @@
 #!/bin/sh
-# meshtopo-scan - 采集 mesh 组网拓扑数据,输出 JSON(供 luci-app-meshtopo 页面轮询)
+# meshtopo-scan - 采集组网拓扑数据,输出 JSON(供 luci-app-meshtopo 页面轮询)
 #
-# 数据来源:
-#   自身信息      uci system / network.lan
-#   外网状态      ubus network.interface.wan
-#   本机直连终端  ubus hostapd.* get_clients
-#   mesh 链路     iw dev <meshif> station dump (信号/流量计数)
-#   各节点终端数  ubus usteer remote_info (远端节点按 "<对端IP>#..." 命名)
-#   节点清单      uci meshtopo (ip/label/可选 peer_mac 固定)
+# 视角规则:无论在哪台设备上执行,都以"主路由"为根节点。
+#   主路由(末位 .1):自身即根
+#   子节点:主路由(取网关地址)为根,自身降级为子节点卡(标"本机")
+#
+# 客户端明细(点击卡片展开):
+#   MAC<->IP/主机名  /tmp/dhcp.leases(主路由有) + /proc/net/arp
+#   节点归属/信号    ubus usteer get_client_info(按 MAC,远端节点键名带 "<IP>#" 前缀)
+#   无 usteer 记录的归入"其他"(有线或离线)
+#
+# 其余数据源:
+#   外网状态  ubus network.interface.wan + 实际 ping
+#   终端计数  ubus hostapd.* get_clients(本机) / ubus usteer remote_info(远端)
+#   mesh 链路 iw dev <meshif> station dump(无线组网时)
 
 . /lib/functions.sh
 
 MAP=/tmp/meshtopo.map
 [ -s "$MAP" ] || : > "$MAP"
 
+SUBNET_PREFIX="${SELF_IP%.*}."
 json_escape() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -21,12 +28,15 @@ json_escape() {
 # ---------- 自身 ----------
 SELF_NAME=$(uci -q get system.@system[0].hostname || echo OpenWrt)
 SELF_IP=$(uci -q get network.lan.ipaddr || echo "192.168.68.1")
+SELF_IP="${SELF_IP%%/*}"
+SUBNET_PREFIX="${SELF_IP%.*}."
 SELF_ROLE=node
 case "$SELF_IP" in *.1) SELF_ROLE=main ;; esac
 
 # ---------- 外网 ----------
 NET_UP=false
 [ "$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)" = "true" ] && NET_UP=true
+[ "$NET_UP" != "true" ] && ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1 && NET_UP=true
 
 # ---------- 本机直连终端数 ----------
 LOCAL_CLIENTS=0
@@ -35,13 +45,12 @@ for obj in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
 	LOCAL_CLIENTS=$((LOCAL_CLIENTS + ${n:-0}))
 done
 
-# ---------- mesh 接口与 peer ----------
+# ---------- mesh 接口与 peer(无线组网时) ----------
 MESH_IFS=$(iw dev 2>/dev/null | awk '
 	/^Interface /{ifname=$2}
 	/^[ \t]*type mesh point/{if (ifname != "") print ifname}
 ')
 
-# 无 mesh 接口(纯有线回程)时清理陈旧映射
 [ -z "$MESH_IFS" ] && : > "$MAP"
 
 dump_peers() { # $1: 输出文件; 每行: mac rx_bytes signal
@@ -90,7 +99,110 @@ usteer_counts > "$USTEER_CACHE"
 
 node_clients() { awk -v ip="$1" '$1==ip{print $2; exit}' "$USTEER_CACHE"; }
 
-# ---------- peer 与节点匹配: uci 固定 > 粘性缓存 > 脉冲探测 ----------
+# ---------- 主路由 ----------
+if [ "$SELF_ROLE" = "main" ]; then
+	MAIN_IP="$SELF_IP"
+	MAIN_JSON="{\"ip\":\"$SELF_IP\",\"name\":\"$(json_escape "$SELF_NAME")\",\"clients\":$LOCAL_CLIENTS,\"online\":true,\"is_self\":true}"
+else
+	MAIN_IP=$(uci -q get network.lan.gateway || echo "")
+	[ -z "$MAIN_IP" ] && MAIN_IP="${SELF_IP%.*}.1"
+	MAIN_UP=false
+	ping -c 1 -W 1 "$MAIN_IP" >/dev/null 2>&1 && MAIN_UP=true
+	MAIN_CLIENTS=$(awk -v ip="$MAIN_IP" '$1==ip{s+=$2} END{print s+0}' "$USTEER_CACHE")
+	MAIN_JSON="{\"ip\":\"$MAIN_IP\",\"name\":\"主路由\",\"clients\":$MAIN_CLIENTS,\"online\":$MAIN_UP,\"is_self\":false}"
+fi
+
+# ---------- 客户端明细: leases + arp + 本机hostapd -> MAC/IP/主机名; get_client_info -> 节点归属/信号 ----------
+CLIENT_TMP=$(mktemp)
+
+# leases: <expiry> <mac> <ip> <hostname> <clientid>(主路由侧,带 IP/主机名,优先)
+while read -r _exp _mac _ip _host _cid; do
+	[ -n "${_mac:-}" ] || continue
+	grep -qi "^$_mac " "$CLIENT_TMP" || printf '%s %s %s\n' "$_mac" "${_ip:--}" "${_host:--}" >> "$CLIENT_TMP"
+done < /tmp/dhcp.leases 2>/dev/null
+
+# arp: 补充静态/无租约设备(仅本网段)
+while read -r _ip _t _fl _mac _rest; do
+	case "${_ip:-}" in "$SUBNET_PREFIX"*) ;; *) continue ;; esac
+	case "${_fl:-}" in 0x*) ;; *) continue ;; esac
+	[ -n "${_mac:-}" ] || continue
+	grep -qi "^$_mac " "$CLIENT_TMP" || printf '%s %s -\n' "$_mac" "$_ip" >> "$CLIENT_TMP"
+done < /proc/net/arp 2>/dev/null
+
+# 本机无线客户端兜底(节点上无租约表,仅有 MAC 与信号)
+for obj in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
+	ubus call "$obj" get_clients 2>/dev/null | awk -v f="$CLIENT_TMP" '
+		{
+			s = $0
+			while (match(s, /[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]/)) {
+				m = substr(s, RSTART, RLENGTH)
+				if (system("grep -qi \"^" m " \" " f) != 0)
+					printf "%s - -\n", m >> f
+				s = substr(s, RSTART + RLENGTH)
+			}
+		}'
+done
+
+# 归属查询: 输出行: <归属IP或SELF> <signal> <客户端IP> <主机名> <MAC>
+ATTR_TMP=$(mktemp)
+while read -r _mac _cip _chost; do
+	[ "$_cip" = "-" ] && _cip=""
+	[ "$_chost" = "-" ] && _chost=""
+	# 路由器自身不在客户端列表中
+	case "${_cip:-}" in "$SELF_IP"|"$MAIN_IP") continue ;; esac
+	if [ -n "${_cip:-}" ] && grep -q "'$_cip'" /etc/config/meshtopo 2>/dev/null; then
+		continue
+	fi
+	out=$(ubus call usteer get_client_info "{\"address\":\"$_mac\"}" 2>/dev/null)
+	nodeip=$(printf '%s' "$out" | awk '
+		{
+			if (match($0, /^[ \t]*"[^"]*": \{/)) {
+				k = substr($0, RSTART, RLENGTH)
+				gsub(/^[ \t]*"/, "", k); gsub(/": \{$/, "", k)
+				cur = k; hit = 0; next
+			}
+			if (match($0, /"connected": (1|true)/)) { hit = 1; next }
+			if (hit && match($0, /"signal": -?[0-9]+/)) {
+				s = substr($0, RSTART, RLENGTH); gsub(/[^0-9-]/, "", s)
+				print cur, s; exit
+			}
+		}')
+	if [ -n "$nodeip" ]; then
+		nkey=${nodeip%% *}
+		nsig=${nodeip#* }
+		case "$nkey" in
+			*"#"*) owner=${nkey%%#*} ;;
+			*)    owner="$SELF_IP" ;;
+		esac
+	else
+		owner=""; nsig=""
+	fi
+	printf '%s|%s|%s|%s|%s\n' "${owner:-none}" "${nsig:-none}" "${_cip:-}" "${_chost:-}" "$_mac" >> "$ATTR_TMP"
+done < "$CLIENT_TMP"
+
+detail_json() { # $1=归属IP(空=未归属)
+	awk -F'|' -v own="$1" '
+		BEGIN { printf "["; n = 0 }
+		NR == FNR { if ($1 != "none") seen[$3] = 1; next }
+		$1 == (own == "" ? "none" : own) {
+			if (own == "" && seen[$3]) next
+			sig = $2; ip = $3; name = $4; mac = $5
+			if (sig == "none") sig = ""
+			if (name == "" || name == "*") name = ip
+			if (name == "") name = mac
+			if (n > 0) printf ","
+			gsub(/[\\"]/, "", name)
+			printf "{\"name\":\"%s\",\"ip\":\"%s\",\"signal\":\"%s\"}", name, ip, sig
+			n++
+		}
+		END { printf "]" }
+	' "$ATTR_TMP" "$ATTR_TMP"
+}
+
+MAIN_DETAIL=$(detail_json "$MAIN_IP")
+MAIN_JSON="${MAIN_JSON%\}},\"detail\":$MAIN_DETAIL}"
+
+# ---------- peer 与节点匹配(链路胶囊) ----------
 map_lookup() { awk -v ip="$1" '$1==ip{print $2; exit}' "$MAP"; }
 
 map_store() { # $1=ip $2=mac
@@ -117,7 +229,6 @@ probe_peer() { # $1=节点IP; 用 ping 脉冲比对各 peer 的 rx 增量,输出
 	first_mac=${first#* }
 	second_d=${second%% *}
 	second_d=${second_d:-0}
-	# 第一名需显著领先(2 倍以上),避免背景流量误判
 	[ -n "$first_mac" ] && [ "$first_d" -gt $((second_d * 2)) ] && printf '%s' "$first_mac"
 }
 
@@ -125,12 +236,13 @@ probe_peer() { # $1=节点IP; 用 ping 脉冲比对各 peer 的 rx 增量,输出
 NODES_JSON=""
 
 node_cb() {
-	local cfg=$1 ip label pinned mac link signal nclients
+	local cfg=$1 ip label pinned mac link signal nclients detail
 	config_get ip "$cfg" ip ""
 	config_get label "$cfg" label ""
 	config_get pinned "$cfg" peer_mac ""
 	[ -z "$ip" ] && return 0
 	[ "$ip" = "$SELF_IP" ] && return 0
+	[ "$ip" = "$MAIN_IP" ] && return 0
 
 	mac="$pinned"
 	[ -z "$mac" ] && mac=$(map_lookup "$ip")
@@ -149,14 +261,26 @@ node_cb() {
 	nclients=$(node_clients "$ip")
 	[ -z "$nclients" ] && nclients=null
 
+	detail=$(detail_json "$ip")
+
 	[ -n "$NODES_JSON" ] && NODES_JSON="$NODES_JSON,"
-	NODES_JSON="$NODES_JSON{\"ip\":\"$ip\",\"label\":\"$(json_escape "$label")\",\"link\":\"$link\",\"signal\":\"$(json_escape "$signal")\",\"clients\":$nclients}"
+	NODES_JSON="$NODES_JSON{\"ip\":\"$ip\",\"label\":\"$(json_escape "$label")\",\"link\":\"$link\",\"signal\":\"$(json_escape "$signal")\",\"clients\":$nclients,\"detail\":$detail}"
 }
 
 config_load meshtopo
 config_foreach node_cb node
 
-rm -f "$PEERS_NOW" "$USTEER_CACHE"
+# 子节点视角:自身也作为子节点卡(排最后)
+if [ "$SELF_ROLE" != "main" ]; then
+	SELF_DETAIL=$(detail_json "$SELF_IP")
+	[ -n "$NODES_JSON" ] && NODES_JSON="$NODES_JSON,"
+	NODES_JSON="$NODES_JSON{\"ip\":\"$SELF_IP\",\"label\":\"$(json_escape "$SELF_NAME")（本机）\",\"link\":\"self\",\"clients\":$LOCAL_CLIENTS,\"detail\":$SELF_DETAIL}"
+fi
 
-printf '{"internet":%s,"self":{"name":"%s","ip":"%s","role":"%s","clients":%d},"nodes":[%s]}\n' \
-	"$NET_UP" "$(json_escape "$SELF_NAME")" "$SELF_IP" "$SELF_ROLE" "$LOCAL_CLIENTS" "$NODES_JSON"
+# 未归属(有线/离线)设备
+OTHERS_JSON=$(detail_json "")
+
+rm -f "$PEERS_NOW" "$USTEER_CACHE" "$CLIENT_TMP" "$ATTR_TMP"
+
+printf '{"internet":%s,"main":%s,"others":%s,"nodes":[%s]}\n' \
+	"$NET_UP" "$MAIN_JSON" "$OTHERS_JSON" "$NODES_JSON"

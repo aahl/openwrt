@@ -1,13 +1,30 @@
 #!/bin/bash
 . $(dirname "$(realpath "$0")")/function.sh
 
-#按机型设定默认 LAN 地址（cs-02 主路由 .1，亚瑟/NN6000 为节点 .2/.3）
-case "$WRT_DEVICE" in
-	jdcloud_re-cs-02) LAN_IP="192.168.68.1" ;;
-	jdcloud_re-ss-01) LAN_IP="192.168.68.2" ;;
-	link_nn6000-v2) LAN_IP="192.168.68.3" ;;
-	*) LAN_IP="${WRT_IP:-192.168.68.1}" ;;
+#机型组网角色:1=mesh 子节点(旁路由,.2/.3 + 关DHCP),0=独立路由(与主同配置,.1,不组mesh)
+#各机型 Config/GENERAL-<机型>.txt 中 "# MESH_NODE=y/n" 可覆盖;默认 cs-02 独立、亚瑟/NN6000 组网
+MESH_NODE=$(sed -n 's/^#[[:space:]]*MESH_NODE=\(.*\)/\1/p' "$GITHUB_WORKSPACE/Config/GENERAL-${WRT_DEVICE}.txt" 2>/dev/null | tail -n 1)
+case "$MESH_NODE" in
+	y|1) MESH_NODE=1 ;;
+	n|0) MESH_NODE=0 ;;
+	*)
+		case "$WRT_DEVICE" in
+			jdcloud_re-ss-01|link_nn6000-v2) MESH_NODE=1 ;;
+			*) MESH_NODE=0 ;;
+		esac
+		;;
 esac
+
+#按角色设定默认 LAN 地址
+if [ "$MESH_NODE" = "1" ]; then
+	case "$WRT_DEVICE" in
+		jdcloud_re-ss-01) LAN_IP="192.168.68.2" ;;
+		link_nn6000-v2) LAN_IP="192.168.68.3" ;;
+		*) LAN_IP="192.168.68.2" ;;
+	esac
+else
+	LAN_IP="192.168.68.1"
+fi
 
 #修改默认主题
 sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
@@ -54,8 +71,8 @@ sed -i "s/192\.168\.[0-9]*\.[0-9]*/$LAN_IP/g" $CFG_FILE
 #修改默认主机名
 sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
 
-#节点机型(亚瑟/NN6000)默认烧入哑节点角色：关闭本机 DHCP，网关/DNS 指向主路由
-if [ "$WRT_DEVICE" = "jdcloud_re-ss-01" ] || [ "$WRT_DEVICE" = "link_nn6000-v2" ]; then
+#mesh 子节点角色烧录：关闭本机 DHCP，网关/DNS 指向主路由（由 MESH_NODE 决定）
+if [ "$MESH_NODE" = "1" ]; then
 	mkdir -p ./files/etc/uci-defaults
 	cat > ./files/etc/uci-defaults/99_node_role <<'EOF'
 #!/bin/sh
@@ -83,6 +100,18 @@ uci -q commit nlbwmon
 exit 0
 EOF
 fi
+
+#所有机型:防御性清除 dropbear 的 DirectInterface 绑定
+#(实测 NSS 数据路径下该绑定会导致 SSH 对外拒绝连接,表现为 22 端口 RST)
+mkdir -p ./files/etc/uci-defaults
+cat > ./files/etc/uci-defaults/99_dropbear_guard <<'EOF'
+#!/bin/sh
+for s in $(uci -q show dropbear 2>/dev/null | cut -d. -f2 | cut -d= -f1 | sort -u); do
+	[ -n "$s" ] && uci -q delete "dropbear.$s.DirectInterface"
+done
+uci -q commit dropbear
+exit 0
+EOF
 
 vlmcsd_patches="./feeds/packages/net/vlmcsd/patches/"
 mkdir -p $vlmcsd_patches && cp -f ../patches/001-fix_compile_with_ccache.patch $vlmcsd_patches

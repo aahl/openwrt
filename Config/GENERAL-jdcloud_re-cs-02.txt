@@ -1,5 +1,7 @@
 #jdcloud_re-cs-02 专用通用配置（按需自行增减插件）
 #防堆叠
+# 组网角色开关:y=mesh子节点(旁路由) / n=独立路由(与主同配置,LAN .1,默认)
+# MESH_NODE=n
 
 CONFIG_PACKAGE_luci-app-samba4=y
 # CONFIG_PACKAGE_luci-app-openlist2=y

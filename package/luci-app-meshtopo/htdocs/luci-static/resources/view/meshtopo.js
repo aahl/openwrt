@@ -23,10 +23,12 @@ var css = '' +
 	'.mt-wrap{display:flex;flex-direction:column;align-items:center}' +
 	'.mt-vline{width:2px;height:24px;background:#cfd6e0;margin:2px 0}' +
 	'.mt-card{position:relative;background:#fff;border:1px solid #e3e8ee;border-radius:12px;' +
-		'padding:14px 20px 10px;text-align:center;box-shadow:0 2px 8px rgba(30,40,60,.08);min-width:180px}' +
+		'padding:14px 20px 10px;text-align:center;box-shadow:0 2px 8px rgba(30,40,60,.08);min-width:180px;' +
+		'cursor:pointer;transition:border-color .15s}' +
+	'.mt-card:hover{border-color:#9fc3e8}' +
 	'.mt-card .mt-badge{position:absolute;top:-10px;right:-10px;min-width:24px;height:24px;border-radius:50%;' +
 		'background:#2f81f7;color:#fff;font-size:13px;line-height:24px;font-weight:600}' +
-	'.mt-name{font-size:14px;font-weight:600;margin-top:4px;max-width:180px;overflow:hidden;' +
+	'.mt-name{font-size:14px;font-weight:600;margin-top:4px;max-width:200px;overflow:hidden;' +
 		'text-overflow:ellipsis;white-space:nowrap}' +
 	'.mt-ip{font-size:12px;color:#8a94a3;margin-top:2px}' +
 	'.mt-connect{position:relative;width:min(560px,92%);height:58px}' +
@@ -39,25 +41,48 @@ var css = '' +
 	'.mt-cap.mid{background:#fdf6e3;border-color:#f0e0b0;color:#8a6d1a}' +
 	'.mt-cap.bad{background:#fdeceb;border-color:#f0c8c5;color:#9c2b26}' +
 	'.mt-cap.wire{background:#e8f7ec;border-color:#bfe6c8;color:#256b34}' +
+	'.mt-cap.self{background:#e8f0fe;border-color:#bcd2f5;color:#1a56c4}' +
 	'.mt-row{display:flex;justify-content:space-between;width:min(560px,92%);gap:24px}' +
 	'.mt-row .mt-card{flex:1}' +
 	'.mt-offline{opacity:.45}' +
-	'.mt-hint{font-size:12px;color:#8a94a3;margin-top:14px}';
+	'.mt-detail{width:min(560px,92%);margin:2px auto 0;background:#fff;border:1px solid #e3e8ee;' +
+		'border-radius:10px;padding:10px 14px;box-shadow:0 2px 8px rgba(30,40,60,.08)}' +
+	'.mt-dtitle{font-size:13px;font-weight:600;border-bottom:1px dashed #e3e8ee;padding-bottom:6px;margin-bottom:4px}' +
+	'.mt-drow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}' +
+	'.mt-drow .mt-sig{color:#8a94a3}' +
+	'.mt-others{margin-top:12px;font-size:12px;color:#8a94a3;cursor:pointer;text-decoration:underline dotted}' +
+	'.mt-hint{font-size:12px;color:#8a94a3;margin-top:14px;text-align:center}';
 
 return view.extend({
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null,
 
+	openNode: null,
+
 	scan: function() {
 		return fs.exec('/usr/bin/meshtopo-scan').then(function(res) {
-			return (res && res.stdout) ? JSON.parse(res.stdout) : null;
+			try {
+				return (res && res.stdout) ? JSON.parse(res.stdout) : null;
+			} catch (e) {
+				return null;
+			}
 		}).catch(function() {
 			return null;
 		});
 	},
 
-	sigClass: function(n) {
+	badgeText: function(clients) {
+		return (clients == null || isNaN(clients)) ? '?' : String(clients);
+	},
+
+	sigText: function(c) {
+		return c.signal ? ('%sdBm'.format(c.signal)) : '有线/未知';
+	},
+
+	nodeCapClass: function(n) {
+		if (n.link == 'self')
+			return 'mt-cap self';
 		if (n.link == 'wire')
 			return 'mt-cap wire';
 
@@ -74,7 +99,9 @@ return view.extend({
 			return 'mt-cap bad';
 	},
 
-	capText: function(n) {
+	nodeCapText: function(n) {
+		if (n.link == 'self')
+			return _('本机');
 		if (n.link == 'mesh')
 			return _('无线 · 802.11s') + (n.signal ? (' · %sdBm').format(n.signal) : '');
 		if (n.link == 'wire')
@@ -82,16 +109,24 @@ return view.extend({
 		return _('离线');
 	},
 
-	badgeText: function(clients) {
-		return (clients == null || isNaN(clients)) ? '?' : String(clients);
-	},
+	buildDetail: function(title, list) {
+		var self = this;
 
-	buildCard: function(name, ip, badge, offline) {
-		return E('div', { 'class': 'mt-card' + (offline ? ' mt-offline' : '') }, [
-			E('div', { 'class': 'mt-badge' }, badge),
-			E('div', {}, svgRouter),
-			E('div', { 'class': 'mt-name' }, name),
-			E('div', { 'class': 'mt-ip' }, ip)
+		var rows = (list || []).map(function(c) {
+			var label = c.ip ? '%s（%s）'.format(c.name || c.ip, c.ip) : (c.name || c.ip);
+
+			return E('div', { 'class': 'mt-drow' }, [
+				E('span', {}, label),
+				E('span', { 'class': 'mt-sig' }, self.sigText(c))
+			]);
+		});
+
+		if (!rows.length)
+			rows = [ E('div', { 'class': 'mt-drow' }, E('span', {}, _('暂无在线客户端'))) ];
+
+		return E('div', { 'class': 'mt-detail' }, [
+			E('div', { 'class': 'mt-dtitle' }, title),
+			rows
 		]);
 	},
 
@@ -100,19 +135,34 @@ return view.extend({
 
 		var wrap = E('div', { 'class': 'mt-wrap' });
 
-		/* 互联网节点 */
-		wrap.appendChild(E('div', {}, svgGlobe));
+		/* 互联网 */
+		if (d.internet !== false)
+			wrap.appendChild(E('div', {}, svgGlobe));
+		else
+			wrap.appendChild(E('div', { 'style': 'opacity:.45' }, svgGlobe));
+
 		wrap.appendChild(E('div', { 'class': 'mt-vline' }));
 
 		/* 主路由 */
-		wrap.appendChild(this.buildCard(
-			(d.role == 'main') ? '%s（主路由）'.format(d.self.name) : d.self.name,
-			d.self.ip,
-			this.badgeText(d.self.clients),
-			false));
+		var mainName = d.main.name || d.main.ip;
+		if (mainName.indexOf('主路由') < 0)
+			mainName += '（主路由）';
+
+		var mainCard = E('div', { 'class': 'mt-card' + (!d.main.online ? ' mt-offline' : '') }, [
+			E('div', { 'class': 'mt-badge' }, self.badgeText(d.main.clients)),
+			E('div', {}, svgRouter),
+			E('div', { 'class': 'mt-name' }, mainName),
+			E('div', { 'class': 'mt-ip' }, d.main.ip)
+		]);
+		mainCard.addEventListener('click', function(ev) {
+			ev.stopPropagation();
+			self.openNode = (self.openNode == 'main') ? null : 'main';
+			self.renderTreeRefresh(d);
+		});
+		wrap.appendChild(mainCard);
 		wrap.appendChild(E('div', { 'class': 'mt-vline' }));
 
-		/* 连接件 + 节点行 */
+		/* 连接件 + 子节点行 */
 		var conn = E('div', { 'class': 'mt-connect' }, [
 			E('div', { 'class': 'mt-cstub' }),
 			E('div', { 'class': 'mt-hbar' })
@@ -122,29 +172,82 @@ return view.extend({
 
 		(d.nodes || []).forEach(function(n, i) {
 			conn.appendChild(E('div', { 'class': 'mt-stub', 'style': 'left:%d%%'.format(i == 0 ? 25 : 75) },
-				E('div', { 'class': self.sigClass(n) }, self.capText(n))));
+				E('div', { 'class': self.nodeCapClass(n) }, self.nodeCapText(n))));
 
-			row.appendChild(self.buildCard(
-				n.label || n.ip, n.ip,
-				self.badgeText(n.clients),
-				n.link == 'down'));
+			var card = E('div', { 'class': 'mt-card' + (n.link == 'down' ? ' mt-offline' : '') }, [
+				E('div', { 'class': 'mt-badge' }, self.badgeText(n.clients)),
+				E('div', {}, svgRouter),
+				E('div', { 'class': 'mt-name' }, n.label || n.ip),
+				E('div', { 'class': 'mt-ip' }, n.ip)
+			]);
+			card.addEventListener('click', function(ev) {
+				ev.stopPropagation();
+				self.openNode = (self.openNode == n.ip) ? null : n.ip;
+				self.renderTreeRefresh(d);
+			});
+			row.appendChild(card);
 		});
 
 		wrap.appendChild(conn);
 		wrap.appendChild(row);
 
-		/* 说明 */
+		/* 明细面板 */
+		if (self.openNode != null) {
+			var title, list;
+
+			if (self.openNode == 'main') {
+				title = '%s · 在线终端 %s 台'.format(mainName, self.badgeText(d.main.clients));
+				list = d.main.detail;
+			} else {
+				var nd = (d.nodes || []).filter(function(n) { return n.ip == self.openNode; })[0];
+				if (nd) {
+					title = '%s（%s）· 在线终端 %s 台'.format(nd.label || nd.ip, nd.ip, self.badgeText(nd.clients));
+					list = nd.detail;
+				} else if (self.openNode == 'others') {
+					title = _('有线 / 未识别设备');
+					list = d.others;
+				}
+			}
+
+			if (title)
+				wrap.appendChild(self.buildDetail(title, list));
+		}
+
+		/* 有线/未识别入口 */
+		var othersCount = (d.others || []).length;
+		if (othersCount > 0) {
+			var others = E('div', { 'class': 'mt-others' },
+				_('有线 / 未识别设备 %d 台（点击查看）').format(othersCount));
+			others.addEventListener('click', function(ev) {
+				ev.stopPropagation();
+				self.openNode = (self.openNode == 'others') ? null : 'others';
+				self.renderTreeRefresh(d);
+			});
+			wrap.appendChild(others);
+		}
+
+		/* 提示 */
 		var hints = [];
 
-		if (!d.internet)
+		if (d.internet === false)
 			hints.push(_('外网未连接'));
 
-		if ((d.nodes || []).some(function(n) { return n.clients == null; }))
-			hints.push(_('节点终端数依赖 usteer 同步，若持续显示 ? 请确认三台的 usteer 服务已运行'));
+		if (self.openNode == null)
+			hints.push(_('点击卡片可查看该节点下的客户端明细'));
 
 		wrap.appendChild(E('div', { 'class': 'mt-hint' }, hints.join(' · ')));
 
 		return wrap;
+	},
+
+	renderTreeRefresh: function(d) {
+		var host = document.getElementById('meshtopo-wrap');
+
+		while (host && host.firstChild)
+			host.removeChild(host.firstChild);
+
+		if (d && host)
+			host.appendChild(this.renderTree(d));
 	},
 
 	load: function() {
@@ -159,7 +262,7 @@ return view.extend({
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Mesh 组网拓扑')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('互联网 → 主路由 → 各房间的实时组网状态，每 5 秒刷新；胶囊标注回程方式与信号强度')),
+				_('以主路由为根的实时组网状态，每 5 秒刷新；点击卡片查看客户端明细，胶囊标注回程方式与信号')),
 			E('div', { 'id': 'meshtopo-wrap' })
 		]);
 
@@ -170,11 +273,7 @@ return view.extend({
 
 		poll.add(function() {
 			return self.scan().then(function(d) {
-				while (host.firstChild)
-					host.removeChild(host.firstChild);
-
-				if (d)
-					host.appendChild(self.renderTree(d));
+				self.renderTreeRefresh(d);
 			});
 		}, 5);
 
