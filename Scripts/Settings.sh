@@ -113,6 +113,14 @@ uci -q commit dropbear
 exit 0
 EOF
 
+#所有机型:dae 配置文件属主权限(dae 校验 config.dae 含凭据须 0600,
+#包默认 0644 会导致首次启动拒绝,原 workflow 中该修复被注释在错误位置)
+cat > ./files/etc/uci-defaults/99_dae_perm <<'EOF'
+#!/bin/sh
+[ -f /etc/dae/config.dae ] && chmod 600 /etc/dae/config.dae
+exit 0
+EOF
+
 vlmcsd_patches="./feeds/packages/net/vlmcsd/patches/"
 mkdir -p $vlmcsd_patches && cp -f ../patches/001-fix_compile_with_ccache.patch $vlmcsd_patches
 
