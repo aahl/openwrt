@@ -124,6 +124,12 @@ EOF
 vlmcsd_patches="./feeds/packages/net/vlmcsd/patches/"
 mkdir -p $vlmcsd_patches && cp -f ../patches/001-fix_compile_with_ccache.patch $vlmcsd_patches
 
+# usteer 候选感知补丁:低于 min_snr 的关联拒绝/踢线前,先查全节点视角是否有更优候选,
+# 没有更好的去处就放行(弱连接好过没连接,覆盖边缘死角"信号可用却被拒"的锁死问题)。
+# 补丁基于 feed pin 的 7532e12 源码制作;若日后升级 usteer 导致 hunk 失配,移植或删除此行。
+usteer_patches="./feeds/packages/net/usteer/patches/"
+mkdir -p $usteer_patches && cp -f ../patches/001-usteer-candidate-aware-assoc-kick.patch $usteer_patches
+
 #修复dropbear
 # #sed -i "s/Interface/DirectInterface/" ./package/network/services/dropbear/files/dropbear.config
 # sed -i "/Interface/d" ./package/network/services/dropbear/files/dropbear.config

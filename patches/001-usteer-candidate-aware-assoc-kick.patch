@@ -1,0 +1,30 @@
+--- a/policy.c
++++ b/policy.c
+@@ -187,8 +187,13 @@
+ 		 * If this is the case, block assoc even when assoc steering is enabled.
+ 		 *
+ 		 * Otherwise, the client potentially ends up in a assoc - kick loop.
++		 * Block only if the client has a reachable better candidate: if this
++		 * node is the best it can get, a weak link beats no link.
+ 		 */
+ 		if (config.min_snr && si->signal < usteer_snr_to_signal(si->node, config.min_snr)) {
++			if (!find_better_candidate(si, NULL, UEV_SELECT_REASON_ALL, 0))
++				goto out;
++
+ 			ev.reason = UEV_REASON_LOW_SIGNAL;
+ 			ev.threshold.cur = si->signal;
+ 			ev.threshold.ref = usteer_snr_to_signal(si->node, config.min_snr);
+@@ -519,6 +524,13 @@
+ 		if (si->below_min_snr <= min_count)
+ 			continue;
+ 
++		/* Kick only if the client has a reachable better candidate.
++		 * Kicking a client with nowhere better to go only causes it to
++		 * re-associate to the same node.
++		 */
++		if (!find_better_candidate(si, NULL, UEV_SELECT_REASON_ALL, 0))
++			continue;
++
+ 		ev.type = UEV_SIGNAL_KICK;
+ 		ev.threshold.cur = si->signal;
+ 		ev.count = si->kick_count;
