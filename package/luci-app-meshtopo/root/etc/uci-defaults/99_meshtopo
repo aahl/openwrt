@@ -4,11 +4,20 @@
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer enable >/dev/null 2>&1
 
 if [ -f /etc/config/usteer ]; then
-	# 噪声底约 -104dBm:SNR 30 ≈ -74dBm 强踢,SNR 40 ≈ -64dBm 开始扫描引导
-	uci -q set usteer.@usteer[0].roam_scan_snr='40'
-	uci -q set usteer.@usteer[0].signal_diff_threshold='5'
-	uci -q set usteer.@usteer[0].min_snr='30'
+	# 噪声底约 -104dBm(2.4G)。阈值语义(见 openwrt/usteer 默认配置注释):
+	#   min_snr         = 无条件强踢线(usteer 不检查是否有更优 AP,客户端被踢后大概率重连
+	#                     本 AP 又被再踢 → 连接死循环)。只允许设在"真正不可用"电平:
+	#                     SNR 12 ≈ -92dBm
+	#   roam_scan_snr   = 温和引导起点:低于该 SNR 才发 802.11k 邻居报告/引导扫描,
+	#                     SNR 20 ≈ -84dBm(设太高会在正常走动范围里频繁骚扰终端)
+	#   signal_diff_threshold = 目标 AP 信号至少好 10dB 才值得引导/漫游,防两 AP 中间乒乓
+	#   roam_scan_timeout     = 3 次扫描引导无响应后每 20s 重试(0 = 改为踢线)
+	uci -q set usteer.@usteer[0].roam_scan_snr='20'
+	uci -q set usteer.@usteer[0].signal_diff_threshold='10'
+	uci -q set usteer.@usteer[0].min_snr='12'
 	uci -q set usteer.@usteer[0].roam_scan_timeout='20000'
+	# 可选:低于 SNR 8(≈-96dBm)拒绝新关联,逼客户端选近处 AP(association-level 拒绝)
+	#uci -q set usteer.@usteer[0].min_connect_snr='8'
 	uci -q commit usteer
 fi
 
