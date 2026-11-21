@@ -213,7 +213,9 @@ jobs:
         if: env.WRT_DEVICE != 'jdcloud_re-cs-02'
         run: |
           cd ./wrt/
-          wget -O dae.zip https://github.com/daeuniverse/dae/releases/download/v1.1.0/dae-linux-arm64.zip
+          # dae 核心:手动验证后再升级(CLI 参数/init 兼容/zip 结构)
+          # 注意: v2 起官方 zip 自带官方版 dat 和 example.dae, unzip -j 只提取二进制, 勿全量解压覆盖内置 Loyalsoldier dat
+          wget -O dae.zip https://github.com/daeuniverse/dae/releases/download/v2.1.2/dae-linux-arm64.zip
           unzip -j dae.zip dae-linux-arm64
           mkdir -p files/usr/bin
           mv dae-linux-arm64 files/usr/bin/dae
