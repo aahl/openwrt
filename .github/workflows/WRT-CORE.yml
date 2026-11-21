@@ -219,6 +219,14 @@ jobs:
           mv dae-linux-arm64 files/usr/bin/dae
           chmod +x files/usr/bin/dae
           rm -f dae.zip
+
+          # geodata 自动更新：脚本 + 定时任务（与 dat/dae 二进制同条件，cs-02 不烧入）
+          # 运行时脚本把最新 dat 落到可写的 /etc/dae/，优先级高于烧入的 /usr/share/dae
+          mkdir -p files/etc/dae files/etc/crontabs
+          cp $GITHUB_WORKSPACE/Scripts/update-geodata.sh files/etc/dae/update-geodata.sh
+          chmod +x files/etc/dae/update-geodata.sh
+          [ -f files/etc/crontabs/root ] || touch files/etc/crontabs/root
+          echo '30 4 * * * /etc/dae/update-geodata.sh >/dev/null 2>&1' >> files/etc/crontabs/root
                     
           #chmod 600 build_dir/target-*/root-*/etc/dae/config.dae
           #ls -l build_dir/target-*/root-*/etc/dae/config.dae

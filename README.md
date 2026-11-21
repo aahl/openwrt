@@ -8,7 +8,8 @@
   
   超强精简，核心插件为luci-app-dae，各机型插件略有差异（京东云机型含samba4），详见 `Config/GENERAL-<设备名>.txt`，内存占用仅65%。
 
-  固件集成增强版geoip.dat、geosite.dat,开箱即用，正确配置Dae不会报错
+  固件集成增强版geoip.dat、geosite.dat,开箱即用，正确配置Dae不会报错  
+  geodata 自动更新已内置（脚本 /etc/dae/update-geodata.sh，每天 04:30 定时检查、dat 每 7 天最多下载一次，更新后热重载 dae 并顺带刷新订阅；仅烧入带 dat 的机型）
 
   源码来自：  [VIKINGYFY](https://github.com/VIKINGYFY/OpenWRT-CI) & [davidtall](https://github.com/davidtall/DaeWRT-CI)  
   略微修改，适度精简，确保最大性能发挥。  
