@@ -4,22 +4,31 @@
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer enable >/dev/null 2>&1
 
 if [ -f /etc/config/usteer ]; then
-	# 噪声底约 -104dBm(2.4G)。阈值语义(见 openwrt/usteer 默认配置注释):
-	#   min_snr         = 无条件强踢线(usteer 不检查是否有更优 AP,客户端被踢后大概率重连
-	#                     本 AP 又被再踢 → 连接死循环)。只允许设在"真正不可用"电平:
-	#                     SNR 12 ≈ -92dBm
-	#   roam_scan_snr   = 温和引导起点:低于该 SNR 才发 802.11k 邻居报告/引导扫描,
-	#                     SNR 20 ≈ -84dBm(设太高会在正常走动范围里频繁骚扰终端)
-	#   signal_diff_threshold = 目标 AP 信号至少好 10dB 才值得引导/漫游,防两 AP 中间乒乓
-	#   roam_scan_timeout     = 3 次扫描引导无响应后每 20s 重试(0 = 改为踢线)
-	uci -q set usteer.@usteer[0].roam_scan_snr='20'
+	# 噪声底约 -104dBm(2.4G)。阈值经实机验证(Windows PC 忽视 802.11k/v, iPhone/Android 响应):
+	#   roam_scan_snr=30    ≈ -74dBm:链路开始明显劣化,温和引导(11k 扫描 + 11v BSS 切换)
+	#   signal_diff_threshold=10      :目标 AP 至少好 10dB 才引导,防两 AP 中间乒乓
+	#   roam_scan_timeout=0 :3 次引导无响应升级为踢线,客户端全扫后落到最强 AP
+	#                        (设 >0 = 永远只重试不踢,无视 11k 的粘性终端永远切不走,实测踩坑)
+	#   min_snr=24          ≈ -80dBm:真降速区无条件强踢(usteer 不检查更优 AP,阈值必须低)
+	uci -q set usteer.@usteer[0].roam_scan_snr='30'
 	uci -q set usteer.@usteer[0].signal_diff_threshold='10'
-	uci -q set usteer.@usteer[0].min_snr='12'
-	uci -q set usteer.@usteer[0].roam_scan_timeout='20000'
-	# 可选:低于 SNR 8(≈-96dBm)拒绝新关联,逼客户端选近处 AP(association-level 拒绝)
-	#uci -q set usteer.@usteer[0].min_connect_snr='8'
+	uci -q set usteer.@usteer[0].min_snr='24'
+	uci -q set usteer.@usteer[0].roam_scan_timeout='0'
 	uci -q commit usteer
 fi
+
+# 11r 补漏:用户手动添加的 AP iface(非固件模板生成)若开了 11r 却缺 ft_psk_generate_local,
+# FT 密钥生成断裂会让整个漫游域的快速漫游失败,客户端抱死旧 AP
+# (实测: cs-02 上 LuCI 手建的 wifinet2 踩此坑,源头是它 sae-mixed 且无本地 FT 密钥)
+_ft_changed=0
+for _s in $(uci -q show wireless 2>/dev/null | sed -n "s/wireless\.\([^.=]*\)=wifi-iface/\1/p"); do
+	if [ "$(uci -q get wireless.$_s.ieee80211r 2>/dev/null)" = "1" ] &&
+	   [ -z "$(uci -q get wireless.$_s.ft_psk_generate_local 2>/dev/null)" ]; then
+		uci -q set wireless.$_s.ft_psk_generate_local='1'
+		_ft_changed=1
+	fi
+done
+[ "$_ft_changed" = "1" ] && uci -q commit wireless
 
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer start >/dev/null 2>&1
 
