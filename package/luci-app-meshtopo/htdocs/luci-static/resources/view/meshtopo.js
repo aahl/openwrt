@@ -124,10 +124,7 @@ return view.extend({
 		if (!rows.length)
 			rows = [ E('div', { 'class': 'mt-drow' }, E('span', {}, _('暂无在线客户端'))) ];
 
-		return E('div', { 'class': 'mt-detail' }, [
-			E('div', { 'class': 'mt-dtitle' }, title),
-			rows
-		]);
+		return E('div', { 'class': 'mt-detail' }, [ E('div', { 'class': 'mt-dtitle' }, title) ].concat(rows));
 	},
 
 	renderTree: function(d) {
