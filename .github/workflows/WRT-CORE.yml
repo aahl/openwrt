@@ -229,6 +229,12 @@ jobs:
           chmod +x files/etc/dae/update-geodata.sh
           [ -f files/etc/crontabs/root ] || touch files/etc/crontabs/root
           echo '30 4 * * * /etc/dae/update-geodata.sh >/dev/null 2>&1' >> files/etc/crontabs/root
+          # crontab 行烧两份:ROM 直烧 + uci-defaults 幂等补行。sysupgrade 保配置时
+          # OpenWrt 默认保留 /etc/crontabs/,旧文件恢复会盖掉 ROM 版(实测:升级后
+          # LuCI 计划任务里看不到 geodata 任务),99_dae_geodata 固件首启自动补回
+          mkdir -p files/etc/uci-defaults
+          cp $GITHUB_WORKSPACE/Scripts/99_dae_geodata files/etc/uci-defaults/99_dae_geodata
+          chmod +x files/etc/uci-defaults/99_dae_geodata
                     
           #chmod 600 build_dir/target-*/root-*/etc/dae/config.dae
           #ls -l build_dir/target-*/root-*/etc/dae/config.dae

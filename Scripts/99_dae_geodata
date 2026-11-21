@@ -1,0 +1,18 @@
+#!/bin/sh
+# dae geodata 计划任务自愈(uci-defaults)
+#
+# 背景:WRT-CORE.yml 把 cron 行直接烧进 ROM(/etc/crontabs/root),但 sysupgrade
+# 保配置升级时 OpenWrt 默认保留 /etc/crontabs/,旧文件恢复回来会把 ROM 新行
+# 盖住,表现为"升级后计划任务里看不到 geodata 任务"。本脚本随固件烧入,每次
+# 固件首启(全新刷机 / 升级)幂等检查并补写,此后无需人工维护。
+# (仅 dae 机型烧入,cs-02 构建不含;由 WRT-CORE.yml 的 Update Dae Core/Config
+#  步骤 cp 进 files/etc/uci-defaults/,与 dae 二进制/geodata 脚本同条件)
+
+[ -x /etc/dae/update-geodata.sh ] || exit 0
+
+# 按脚本路径探测(而非整行匹配):用户手动改过执行时间也不重复添加
+touch /etc/crontabs/root
+grep -qF '/etc/dae/update-geodata.sh' /etc/crontabs/root || \
+	echo '30 4 * * * /etc/dae/update-geodata.sh >/dev/null 2>&1' >> /etc/crontabs/root
+
+exit 0
