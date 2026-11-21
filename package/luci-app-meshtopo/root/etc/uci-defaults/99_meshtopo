@@ -4,16 +4,41 @@
 [ -x /etc/init.d/usteer ] && /etc/init.d/usteer enable >/dev/null 2>&1
 
 if [ -f /etc/config/usteer ]; then
-	# 噪声底约 -104dBm(2.4G)。阈值经实机验证(Windows PC 忽视 802.11k/v, iPhone/Android 响应):
-	#   roam_scan_snr=30    ≈ -74dBm:链路开始明显劣化,温和引导(11k 扫描 + 11v BSS 切换)
-	#   signal_diff_threshold=10      :目标 AP 至少好 10dB 才引导,防两 AP 中间乒乓
-	#   roam_scan_timeout=0 :3 次引导无响应升级为踢线,客户端全扫后落到最强 AP
-	#                        (设 >0 = 永远只重试不踢,无视 11k 的粘性终端永远切不走,实测踩坑)
-	#   min_snr=24          ≈ -80dBm:真降速区无条件强踢(usteer 不检查更优 AP,阈值必须低)
+	# 噪声底 2.4G 约 -104dBm,usteer 按各节点自身噪声底把 SNR 换算成 dBm:
+	#   roam_scan_snr=30         ≈ -74dBm:链路开始明显劣化,温和引导(11k 扫描 + 11v 协商)
+	#   signal_diff_threshold=10:目标 AP 至少好 10dB 才引导,防两 AP 中间乒乓
 	uci -q set usteer.@usteer[0].roam_scan_snr='30'
 	uci -q set usteer.@usteer[0].signal_diff_threshold='10'
-	uci -q set usteer.@usteer[0].min_snr='24'
-	uci -q set usteer.@usteer[0].roam_scan_timeout='0'
+
+	if grep -q 'aggressiveness_mac_list' /sbin/usteerd 2>/dev/null; then
+		# ---- 协商阶梯(usteer >= 2024-10,commit 49ba5f1) ----
+		# aggressiveness 1=纯协商:终端拒绝 BSS 切换请求 → 取消踢线并退避(绝不硬踢)
+		#               2=+Disassociation Imminent 警告位(roam_kick_delay 后踢)
+		#               3=+倒计时给终端看(到点仍不走才断,推荐默认)
+		#               4=+到期强制 deauth(只给顽固 Windows,建议走 per-MAC 列表)
+		# 新版语义:min_snr 之下还会拒收重连(上游防"踢-连"死循环的对策),所以兜底
+		# 必须设低,给 -74 ~ -90dBm 留足协商走廊。旧配置"不踢/连不上"两极化的根因
+		# 就是大锤设太高(min_snr=24)把协商空间挤没了。
+		uci -q set usteer.@usteer[0].aggressiveness='3'
+		# 3 次引导无响应 → 冷却 20s 重试;踢线交给协商阶梯负责,不再"3 次就踢"
+		uci -q set usteer.@usteer[0].roam_scan_timeout='20000'
+		# ≈ -90dBm 兜底大锤:真不可用才无条件踢(集群看不到更优候选的失明终端专属)
+		uci -q set usteer.@usteer[0].min_snr='14'
+		# 连续 10s 低于兜底才踢,过滤人体/拐角瞬时遮挡
+		uci -q set usteer.@usteer[0].min_snr_kick_delay='10000'
+		# 终端明确拒绝协商后 60s 内尊重其选择不再骚扰
+		uci -q set usteer.@usteer[0].steer_reject_timeout='60000'
+		# per-MAC 覆盖示例(格式 <小写MAC>,<0-4>),按需手工启用:
+		#uci -q add_list usteer.@usteer[0].aggressiveness_mac_list='aa:bb:cc:dd:ee:ff,4'  # 顽固 Windows:到期强制断
+		#uci -q add_list usteer.@usteer[0].aggressiveness_mac_list='11:22:33:44:55:66,1'  # 老 IoT:只协商永不强踢
+	else
+		# ---- 旧版 usteer 无协商机制,维持实机调优参数 ----
+		#   roam_scan_timeout=0 : 3 次引导无响应 → 升级踢线(>0 = 永远只重试不踢,
+		#                          无视 11k 的粘性终端永远切不走,实测踩坑)
+		#   min_snr=24          : ≈ -80dBm 无条件强踢(旧版不拒绝低信号重连,阈值必须低)
+		uci -q set usteer.@usteer[0].min_snr='24'
+		uci -q set usteer.@usteer[0].roam_scan_timeout='0'
+	fi
 	uci -q commit usteer
 fi
 
