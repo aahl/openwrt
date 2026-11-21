@@ -27,6 +27,12 @@ if [ -f /etc/config/usteer ]; then
 		uci -q set usteer.@usteer[0].min_snr_kick_delay='10000'
 		# 终端明确拒绝协商后 60s 内尊重其选择不再骚扰
 		uci -q set usteer.@usteer[0].steer_reject_timeout='60000'
+		# 连接引导("谁近/谁闲连谁"):终端发起连接时,本节点先查集群视角(各节点听到的
+		# 信号/负载,probe 帧广播全网可见),存在明显更优节点(好 10dB 或客户端数少 3)
+		# 就拒绝自己,终端自动落到正确节点。无需终端支持 11k/v,Windows 也生效;
+		# 仅作用于新建连接,已连接且链路尚可的终端不折腾(与主流一致)
+		uci -q set usteer.@usteer[0].assoc_steering='1'
+		uci -q set usteer.@usteer[0].load_balancing_threshold='3'
 		# per-MAC 覆盖示例(格式 <小写MAC>,<0-4>),按需手工启用:
 		#uci -q add_list usteer.@usteer[0].aggressiveness_mac_list='aa:bb:cc:dd:ee:ff,4'  # 顽固 Windows:到期强制断
 		#uci -q add_list usteer.@usteer[0].aggressiveness_mac_list='11:22:33:44:55:66,1'  # 老 IoT:只协商永不强踢
