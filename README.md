@@ -1,6 +1,8 @@
 # DAEWRT-MINI
 高通IPQ60XX平台多机型精简固件包  MINI版
   
+  使用说明（dae 配置 / geodata 自动更新 / Mesh 漫游调优 / 排障）：[docs/使用说明.md](docs/使用说明.md)
+  
   支持设备：
   - 京东云亚瑟 AX1800 Pro（jdcloud_re-ss-01）
   - 京东云 RE-CS-02（jdcloud_re-cs-02）
