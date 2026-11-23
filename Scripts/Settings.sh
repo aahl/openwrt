@@ -124,9 +124,28 @@ EOF
 vlmcsd_patches="./feeds/packages/net/vlmcsd/patches/"
 mkdir -p $vlmcsd_patches && cp -f ../patches/001-fix_compile_with_ccache.patch $vlmcsd_patches
 
+# usteer 源码强制升级到上游 7532e12(2026-05-19 HEAD):
+# LiBwrt v25.12.1 的 packages feed pin(immortalwrt/packages@e93a938)只给到 1d6524c(2025-10-04),
+# 缺 2025-10 后合入的漫游特性——协商阶梯(aggressiveness/aggressiveness_mac_list,上游 49ba5f1)、
+# band_steering 动态阈值防乒乓、DEAUTH reason codes、reassoc_delay+MBO reason 5(7532e12)等,
+# 99_meshtopo 的二进制探测会走旧版回退分支,协商阶梯参数全部休眠。
+# 这里把 feed 内 Makefile 的源码版本改到 7532e12,与候选感知补丁的制作基线一致;
+# PKG_MIRROR_HASH 取自 openwrt/packages@02cd7a4(官方 2026-05-19 升级提交),三值必须配套。
+# 若日后 LiBwrt feed pin 已自带 7532e12,sed 无匹配即空跑,固件用 feed 原版本。
+usteer_mk="./feeds/packages/net/usteer/Makefile"
+if [ -f "$usteer_mk" ] && grep -q 'PKG_SOURCE_VERSION:=1d6524c6e6b58853f053c7816249a8f68ad9b0e8' "$usteer_mk"; then
+	sed -i \
+		-e 's/^PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=2026-05-19/' \
+		-e 's/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=7532e1252fb937fe34b6da05e86fd34babd91ef5/' \
+		-e 's/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=7d49d3659c07bebb9c9f68953bbf074840f83de4d38b578e08672b3029506088/' \
+		"$usteer_mk"
+fi
+
 # usteer 候选感知补丁:低于 min_snr 的关联拒绝/踢线前,先查全节点视角是否有更优候选,
 # 没有更好的去处就放行(弱连接好过没连接,覆盖边缘死角"信号可用却被拒"的锁死问题)。
-# 补丁基于 feed pin 的 7532e12 源码制作;若日后升级 usteer 导致 hunk 失配,移植或删除此行。
+# 补丁按 usteer 上游 7532e12 源码制作并经 git apply --check 干净适配(无 hunk 偏移);
+# 旧 pin 的 1d6524c 也能打上(hunk#2 偏移 -41 行,find_better_candidate 签名未变,两版均可编译)。
+# 若日后升级 usteer 导致 hunk 失配,构建会失败提醒,届时移植或删除此行。
 usteer_patches="./feeds/packages/net/usteer/patches/"
 mkdir -p $usteer_patches && cp -f ../patches/001-usteer-candidate-aware-assoc-kick.patch $usteer_patches
 
