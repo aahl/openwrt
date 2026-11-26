@@ -72,6 +72,8 @@ UPDATE_PACKAGE "luci-app-easytier" "EasyTier/luci-app-easytier" "main"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
 UPDATE_PACKAGE "openlist2" "sbwml/luci-app-openlist2" "main"
 UPDATE_PACKAGE "ddns-go" "sirpdboy/luci-app-ddns-go" "main"
+# ddns-go 版本显示修复: 上游版本变量为 main.version(小写v), sirpdboy Makefile 误写为 main.Version, 导致 ddns-go -v 输出 DEV(LuCI 显示 vDEV)
+sed -i 's/GO_PKG_LDFLAGS_X:=main\.Version=/GO_PKG_LDFLAGS_X:=main.version=/' luci-app-ddns-go/ddns-go/Makefile
 #UPDATE_PACKAGE "quickfile" "sbwml/luci-app-quickfile" "main"
 
 #更新软件包版本
