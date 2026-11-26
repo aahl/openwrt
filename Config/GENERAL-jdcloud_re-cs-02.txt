@@ -12,6 +12,9 @@ CONFIG_PACKAGE_luci-app-ttyd=y
 CONFIG_PACKAGE_luci-app-easytier=y
 CONFIG_PACKAGE_easytier=y
 CONFIG_PACKAGE_luci-app-frpc=y
+# DDNS-GO 动态域名
+CONFIG_PACKAGE_luci-app-ddns-go=y
+CONFIG_PACKAGE_ddns-go=y
 # 按设备流量统计(仅主路由)
 CONFIG_PACKAGE_nlbwmon=y
 CONFIG_PACKAGE_luci-app-nlbwmon=y
