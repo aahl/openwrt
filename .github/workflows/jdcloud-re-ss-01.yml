@@ -20,6 +20,9 @@ on:
         required: false
         type: boolean
 
+# CI权限
+permissions: write-all
+
 jobs:
   config:
     name: Build
