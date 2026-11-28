@@ -25,6 +25,12 @@
  *   noCache            可选，跳过缓存
  *   base64             可选，配合 target=URI 使用：把节点分享链接转成 base64 订阅
  *                       （HomeProxy 等只接受 base64 或 SIP008，不吃完整配置）
+ *   momo               可选，配合 target=sing-box：注入 momo 所需 inbound/dns 骨架
+ *                       （redirect-in/tproxy-in/tun-in/dns-in/fake-ip-dns-server/clash_api）
+ *   以下为扁平参数，覆盖 momo 骨架默认值（momo=1 时生效）：
+ *     redirectPort=5140  tproxyPort=5141  dnsPort=1053  tunName=utun
+ *     dnsServer=223.5.5.5  fakeIP=198.18.0.0/16  fakeIP6=fc00::/18
+ *     clashPort=9090  clashSecret=
  *   includeUnsupportedProxy  可选，true=包含被平台过滤器排除的节点（如 anytls+reality）
  *   remote             可选，true=远程引用规则集（默认拉取后内联）
  *   geoipTag / geositeTag  sing-box 的 geo 规则集 tag，默认 geoip-cn / geosite-cn
@@ -79,6 +85,47 @@ function scDecodeURIComponent(s) {
     } catch (e) {
         return s;
     }
+}
+
+// momo (OpenWrt-momo) 约定 TAG 的最小骨架，全部由扁平 URL 参数覆盖
+function scMomoSkeleton(opt) {
+    const port = (v, d) => {
+        const n = Number(v);
+        return Number.isInteger(n) && n > 0 && n < 65536 ? n : d;
+    };
+    const redirectPort = port(opt.redirectPort, 5140);
+    const tproxyPort = port(opt.tproxyPort, 5141);
+    const dnsPort = port(opt.dnsPort, 1053);
+    const tunName = opt.tunName || 'utun';
+    const dnsServer = opt.dnsServer || '223.5.5.5';
+    const fakeIP = opt.fakeIP || '198.18.0.0/16';
+    const fakeIP6 = opt.fakeIP6 || 'fc00::/18';
+    const clashPort = port(opt.clashPort, 9090);
+    const clashSecret = opt.clashSecret || '';
+    return {
+        inbounds: [
+            { type: 'redirect', tag: 'redirect-in', listen_port: redirectPort, sniff: true },
+            { type: 'tproxy', tag: 'tproxy-in', listen_port: tproxyPort, network: 'udp', sniff: true },
+            { type: 'tun', tag: 'tun-in', interface_name: tunName, stack: 'gvisor', auto_route: false, strict_route: false, sniff: true },
+            { type: 'direct', tag: 'dns-in', listen_port: dnsPort, network: 'udp' },
+        ],
+        dns: {
+            servers: [
+                { tag: 'dns-direct', type: 'udp', server: dnsServer },
+                { tag: 'fake-ip-dns-server', type: 'fake-ip', fake_ip_range: fakeIP, inet6_range: fakeIP6 },
+            ],
+            rules: [
+                { inbound: ['dns-in'], server: 'fake-ip-dns-server' },
+            ],
+            fake_ip_range: fakeIP,
+        },
+        experimental: {
+            clash_api: {
+                external_controller: `0.0.0.0:${clashPort}`,
+                secret: clashSecret,
+            },
+        },
+    };
 }
 
 function scParseOptions() {
@@ -155,6 +202,27 @@ function scParseOptions() {
             scBool(scPick(realQuery, ['includeUnsupportedProxy', 'include-unsupported-proxy'], false)),
         )),
         remote: scBool(scPick(o, ['remote'], false)),
+        // sing-box 目标专用：注入 momo 所需 inbound/dns 骨架，或用 extra 任意覆盖
+        momo: scBool(scPick(realQuery, ['momo'], undefined)
+            || scPick(o, ['momo'], false)),
+        redirectPort: scPick(realQuery, ['redirectPort', 'redirect_port'], undefined)
+            || scPick(o, ['redirectPort', 'redirect_port'], undefined),
+        tproxyPort: scPick(realQuery, ['tproxyPort', 'tproxy_port'], undefined)
+            || scPick(o, ['tproxyPort', 'tproxy_port'], undefined),
+        dnsPort: scPick(realQuery, ['dnsPort', 'dns_port'], undefined)
+            || scPick(o, ['dnsPort', 'dns_port'], undefined),
+        tunName: scPick(realQuery, ['tunName', 'tun_name', 'tunIface'], undefined)
+            || scPick(o, ['tunName', 'tun_name', 'tunIface'], undefined),
+        dnsServer: scPick(realQuery, ['dnsServer', 'dns_server'], undefined)
+            || scPick(o, ['dnsServer', 'dns_server'], undefined),
+        fakeIP: scPick(realQuery, ['fakeIP', 'fake_ip'], undefined)
+            || scPick(o, ['fakeIP', 'fake_ip'], undefined),
+        fakeIP6: scPick(realQuery, ['fakeIP6', 'fake_ip6'], undefined)
+            || scPick(o, ['fakeIP6', 'fake_ip6'], undefined),
+        clashPort: scPick(realQuery, ['clashPort', 'clash_port'], undefined)
+            || scPick(o, ['clashPort', 'clash_port'], undefined),
+        clashSecret: scPick(realQuery, ['clashSecret', 'clash_secret'], undefined)
+            || scPick(o, ['clashSecret', 'clash_secret'], undefined),
         geoipTag: String(scPick(o, ['geoipTag'], 'geoip-cn')),
         geositeTag: String(scPick(o, ['geositeTag'], 'geosite-cn')),
         timeout: Number(scPick(o, ['timeout'], 15000)) || 15000,
@@ -646,7 +714,12 @@ function scEmitSingbox(ctx) {
         route.rules = (Array.isArray(route.rules) ? route.rules : []).concat(allRules);
     }
     route.final = finalPolicy || 'direct';
-    return JSON.stringify({ ...base, outbounds, route }, null, 2);
+    let config = { ...base, outbounds, route };
+    if (opt.momo) {
+        Object.assign(config, scMomoSkeleton(opt));
+        scInfo('已注入 momo 骨架（redirect-in/tproxy-in/tun-in/dns-in/fake-ip-dns-server/clash_api）');
+    }
+    return JSON.stringify(config, null, 2);
 }
 
 async function scMain() {
