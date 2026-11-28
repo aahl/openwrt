@@ -60,10 +60,12 @@ UPDATE_VERSION() {
 
 	for PKG_FILE in $PKG_FILES; do
 		local PKG_REPO=$(grep -Po "PKG_SOURCE_URL:=https://.*github.com/\K[^/]+/[^/]+(?=.*)" $PKG_FILE)
+		local GH_AUTH=()
+		[ -n "$GITHUB_TOKEN" ] && GH_AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
 		if [[ -z $PKG_VER || $PKG_VER == "latest" ]]; then
-			local PKG_TAG=$(curl -sL "https://api.github.com/repos/$PKG_REPO/releases/latest" | jq -r '.tag_name // ""')
+			local PKG_TAG=$(curl -sL "${GH_AUTH[@]}" "https://api.github.com/repos/$PKG_REPO/releases/latest" | jq -r '.tag_name // ""')
 		else
-			local PKG_TAG=$(curl -sL "https://api.github.com/repos/$PKG_REPO/releases/tags/$PKG_VER" | jq -r '.tag_name // ""')
+			local PKG_TAG=$(curl -sL "${GH_AUTH[@]}" "https://api.github.com/repos/$PKG_REPO/releases/tags/$PKG_VER" | jq -r '.tag_name // ""')
 		fi
 
 		if [[ -z $PKG_TAG ]]; then
