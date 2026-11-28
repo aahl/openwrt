@@ -685,6 +685,11 @@ function scEmitSingbox(ctx) {
         }
     }
     const outbounds = Array.isArray(base.outbounds) ? base.outbounds.slice() : [];
+    // Clash/Mihomo 内置 DIRECT，sing-box 没有；rule.ini 的组普遍引用 DIRECT，
+    // 正则组无匹配时也会 fallback 到 DIRECT，所以必须显式声明一个 direct 出站。
+    if (!outbounds.some((o) => o && o.tag === 'DIRECT')) {
+        outbounds.push({ type: 'direct', tag: 'DIRECT' });
+    }
     for (const g of groups) {
         const o = {
             type: scSingboxGroupType(g.type),
@@ -715,7 +720,7 @@ function scEmitSingbox(ctx) {
     if (allRules.length) {
         route.rules = (Array.isArray(route.rules) ? route.rules : []).concat(allRules);
     }
-    route.final = finalPolicy || 'direct';
+    route.final = finalPolicy || 'DIRECT';
     let config = { ...base, outbounds, route };
     if (opt.momo) {
         Object.assign(config, scMomoSkeleton(opt));
