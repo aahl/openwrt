@@ -201,6 +201,20 @@ jobs:
 
           cp -f ./.config ./upload/Config-"$WRT_CONFIG"-"$WRT_DATE".txt
 
+          if [[ $WRT_TEST == 'true' ]]; then
+            {
+              echo "## Config: $WRT_CONFIG ($WRT_DATE)"
+              echo
+              echo '<details><summary>Config.txt</summary>'
+              echo
+              echo '```text'
+              cat ./upload/Config-"$WRT_CONFIG"-"$WRT_DATE".txt
+              echo '```'
+              echo
+              echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           if [[ $WRT_TEST != 'true' ]]; then
             echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -hoP '^kernel - \K[\d\.]+' {} \; | head -n1)" >> $GITHUB_ENV
             echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -hoP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')" >> $GITHUB_ENV
@@ -218,7 +232,15 @@ jobs:
             find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; || true
           fi
 
+      - name: Upload Config
+        if: env.WRT_TEST == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Config-${{env.WRT_CONFIG}}-${{env.WRT_DATE}}
+          path: ./wrt/upload/Config-${{env.WRT_CONFIG}}-${{env.WRT_DATE}}.txt
+
       - name: Release Firmware
+        if: env.WRT_TEST != 'true'
         uses: softprops/action-gh-release@master
         with:
           tag_name: ${{env.WRT_DATE}}-${{env.WRT_CONFIG}}
