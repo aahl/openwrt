@@ -172,8 +172,10 @@ jobs:
         if: env.WRT_TEST == 'true'
         run: |
           cd ./wrt/
-          echo "===== tmp/.config-package.in ====="
-          grep -nE 'config PACKAGE_(luci-app-store|luci-app-quickstart|luci-lib-taskd|taskd|quickstart|libuci-lua|mount-utils)' tmp/.config-package.in || echo "NONE FOUND"
+          echo "===== full Kconfig block: luci-app-store ====="
+          grep -n -A14 'config PACKAGE_luci-app-store' tmp/.config-package.in | head -20
+          echo "===== full Kconfig block: luci-app-quickstart ====="
+          grep -n -A14 'config PACKAGE_luci-app-quickstart' tmp/.config-package.in | head -20
           echo "===== .config ====="
           grep -nE 'PACKAGE_(luci-app-store|luci-app-quickstart|luci-lib-taskd|taskd|quickstart|libuci-lua|mount-utils)' .config || echo "NONE FOUND"
 
