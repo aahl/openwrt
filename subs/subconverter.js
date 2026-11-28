@@ -102,11 +102,6 @@ function scParseOptions() {
     }
     // url 优先从 query 读取：?url=<rule.ini 地址>&target=<平台>
     const realQuery = (o._req && o._req.query) || query;
-    const url = scPick(realQuery, ['url', 'ini', 'src'], undefined)
-        || scPick(o, ['url', 'ini', 'src', 'u'], undefined);
-    if (!url || typeof url !== 'string') {
-        throw new Error('缺少 $options.url（SubConverter .ini 地址）');
-    }
     // 优先用 query 上的 target 参数（与 url 一致）；没传再用 $options.target
     const rawTarget = String(
         scPick(realQuery, ['target', 't', 'platform'], undefined)
@@ -120,7 +115,18 @@ function scParseOptions() {
     };
     const target = targetMap[rawTarget];
     if (!target) {
+        // 其它平台（如 URI/JSON/Surge/Loon）直接放行，让 Sub-Store 输出原始节点订阅
+        const otherTargets = new Set([
+            'uri', 'json', 'surge', 'surgemac', 'surfboard', 'loon',
+            'shadowrocket', 'egern', 'stash',
+        ]);
+        if (otherTargets.has(rawTarget)) return { skip: true, target: rawTarget };
         throw new Error(`不支持的 target: ${rawTarget}（可选 mihomo / qx / sing-box）`);
+    }
+    const url = scPick(realQuery, ['url', 'ini', 'src'], undefined)
+        || scPick(o, ['url', 'ini', 'src', 'u'], undefined);
+    if (!url || typeof url !== 'string') {
+        throw new Error('缺少 $options.url（SubConverter .ini 地址）');
     }
     // sub 自动取 URL 路径里的组合订阅/订阅名（/download/collection/<name>/...）
     const sub = scPick(realQuery, ['sub', 'subscription'], undefined)
@@ -636,6 +642,10 @@ function scEmitSingbox(ctx) {
 
 async function scMain() {
     const opt = scParseOptions();
+    if (opt.skip) {
+        scInfo(`target=${opt.target} 不在本脚本处理范围，保持 Sub-Store 原始输出`);
+        return;
+    }
     const iniText = await scFetchText(opt.url, 86400, opt);
     const parsed = scParseIni(iniText);
     scInfo(`解析到 ${parsed.rulesets.length} 个 ruleset、${parsed.groups.length} 个 proxy group`);
