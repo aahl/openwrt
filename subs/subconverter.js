@@ -29,7 +29,7 @@
  *                       （redirect-in/tproxy-in/tun-in/dns-in/fake-ip-dns-server/clash_api）
  *   以下为扁平参数，覆盖 momo 骨架默认值（momo=1 时生效）：
  *     redirectPort=5140  tproxyPort=5141  dnsPort=1053  tunName=utun
- *     dnsServer=223.5.5.5  fakeIP=198.18.0.0/16  fakeIP6=fc00::/18
+ *     dnsServer=223.5.5.5  fakeIP=198.18.0.0/15  fakeIP6=fc00::/18
  *     clashPort=9090  clashSecret=
  *   includeUnsupportedProxy  可选，true=包含被平台过滤器排除的节点（如 anytls+reality）
  *   remote             可选，true=远程引用规则集（默认拉取后内联）
@@ -98,7 +98,7 @@ function scMomoSkeleton(opt) {
     const dnsPort = port(opt.dnsPort, 1053);
     const tunName = opt.tunName || 'utun';
     const dnsServer = opt.dnsServer || '223.5.5.5';
-    const fakeIP = opt.fakeIP || '198.18.0.0/16';
+    const fakeIP = opt.fakeIP || '198.18.0.0/15';
     const fakeIP6 = opt.fakeIP6 || 'fc00::/18';
     const clashPort = port(opt.clashPort, 9090);
     const clashSecret = opt.clashSecret || '';
@@ -112,12 +112,11 @@ function scMomoSkeleton(opt) {
         dns: {
             servers: [
                 { tag: 'dns-direct', type: 'udp', server: dnsServer },
-                { tag: 'fake-ip-dns-server', type: 'fake-ip', fake_ip_range: fakeIP, inet6_range: fakeIP6 },
+                { tag: 'fake-ip-dns-server', type: 'fakeip', inet4_range: fakeIP, inet6_range: fakeIP6 },
             ],
             rules: [
                 { inbound: ['dns-in'], server: 'fake-ip-dns-server' },
             ],
-            fake_ip_range: fakeIP,
         },
         experimental: {
             clash_api: {
@@ -378,10 +377,13 @@ async function scGetProxies(opt, platform) {
     }
     for (const c of candidates) {
         try {
+            // 统一取 Clash 内部格式（name/port 完整），再由各 emitter 转成目标平台。
+            // 若直接用目标平台取 internal，拿到的是已转换过的 tag/server_port，
+            // 再 produce 一次会因 name/port 缺失而产生 tag ...:undefined / server_port:null。
             const list = await produceArtifact({
                 type: c.type,
                 name: c.name,
-                platform,
+                platform: 'ClashMeta',
                 produceType: 'internal',
                 produceOpts: { 'include-unsupported-proxy': opt.includeUnsupportedProxy },
             });
