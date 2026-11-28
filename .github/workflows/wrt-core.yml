@@ -145,6 +145,9 @@ jobs:
           echo 'src-git nas https://github.com/linkease/nas-packages.git;master' >> feeds.conf.default
           echo 'src-git nas_luci https://github.com/linkease/nas-packages-luci.git;main' >> feeds.conf.default
 
+          # momo transparent proxy (sing-box based)
+          echo 'src-git momo https://github.com/nikkinikki-org/OpenWrt-momo.git;main' >> feeds.conf.default
+
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
