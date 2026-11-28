@@ -23,6 +23,8 @@
  *   collection         可选，组合订阅名（sub 找不到订阅时自动尝试同名组合）
  *   proxyUrl           可选，原始订阅地址（代替 sub）
  *   noCache            可选，跳过缓存
+ *   base64             可选，配合 target=URI 使用：把节点分享链接转成 base64 订阅
+ *                       （HomeProxy 等只接受 base64 或 SIP008，不吃完整配置）
  *   includeUnsupportedProxy  可选，true=包含被平台过滤器排除的节点（如 anytls+reality）
  *   remote             可选，true=远程引用规则集（默认拉取后内联）
  *   geoipTag / geositeTag  sing-box 的 geo 规则集 tag，默认 geoip-cn / geosite-cn
@@ -120,7 +122,14 @@ function scParseOptions() {
             'uri', 'json', 'surge', 'surgemac', 'surfboard', 'loon',
             'shadowrocket', 'egern', 'stash',
         ]);
-        if (otherTargets.has(rawTarget)) return { skip: true, target: rawTarget };
+        if (otherTargets.has(rawTarget)) {
+            return {
+                skip: true,
+                target: rawTarget,
+                base64: scBool(scPick(realQuery, ['base64', 'b64'], undefined)
+                    || scPick(o, ['base64', 'b64'], false)),
+            };
+        }
         throw new Error(`不支持的 target: ${rawTarget}（可选 mihomo / qx / sing-box）`);
     }
     const url = scPick(realQuery, ['url', 'ini', 'src'], undefined)
@@ -643,7 +652,19 @@ function scEmitSingbox(ctx) {
 async function scMain() {
     const opt = scParseOptions();
     if (opt.skip) {
-        scInfo(`target=${opt.target} 不在本脚本处理范围，保持 Sub-Store 原始输出`);
+        if (opt.base64) {
+            // HomeProxy 等订阅解析器只接受 base64 分享链接
+            const raw = (typeof $res !== 'undefined' && $res && $res.body != null)
+                ? String($res.body)
+                : String(typeof $content !== 'undefined' ? $content : '');
+            const encoded = (typeof b64e !== 'undefined')
+                ? b64e(raw)
+                : ProxyUtils.Base64.encode(raw);
+            scSetOutput(encoded);
+            scInfo(`target=${opt.target}：已输出 base64 节点订阅（${raw.length} 字节）`);
+        } else {
+            scInfo(`target=${opt.target} 不在本脚本处理范围，保持 Sub-Store 原始输出`);
+        }
         return;
     }
     const iniText = await scFetchText(opt.url, 86400, opt);
